@@ -1,12 +1,15 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
+import { useDialogA11y } from "@/hooks/useDialogA11y";
 import { cn } from "@/lib/cn";
 
 /* ═══════════════════════════════════════════════════════════════════════
  * Sheet — bottom-sheet on phones, centred dialog from `sm:` up.
- * Locks body scroll, closes on backdrop tap / Escape.
+ * Locks body scroll, closes on backdrop tap / Escape, and behaves like a
+ * real modal for the keyboard: focus moves in, Tab cycles inside, focus
+ * returns to whatever opened it (see useDialogA11y).
  * ═════════════════════════════════════════════════════════════════════ */
 
 export type SheetSize = "sm" | "md" | "lg" | "xl" | "full";
@@ -30,6 +33,8 @@ interface SheetProps {
   size?: SheetSize;
   /** hide the built-in close button */
   bare?: boolean;
+  /** accessible name for a `bare` sheet, which has no visible title */
+  ariaLabel?: string;
   className?: string;
   bodyClassName?: string;
 }
@@ -44,22 +49,23 @@ export function Sheet({
   footer,
   size = "md",
   bare = false,
+  ariaLabel,
   className,
   bodyClassName,
 }: SheetProps) {
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const titleId = useId();
+
+  useDialogA11y({ open, onClose, dialogRef });
+
   useEffect(() => {
     if (!open) return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
     return () => {
       document.body.style.overflow = prev;
-      window.removeEventListener("keydown", onKey);
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (typeof document === "undefined") return null;
 
@@ -79,8 +85,12 @@ export function Sheet({
           />
 
           <motion.div
+            ref={dialogRef}
             role="dialog"
             aria-modal="true"
+            tabIndex={-1}
+            aria-labelledby={title ? titleId : undefined}
+            aria-label={title ? undefined : ariaLabel}
             initial={{ y: "100%", opacity: 0.6, scale: 0.99 }}
             animate={{ y: 0, opacity: 1, scale: 1 }}
             exit={{ y: "100%", opacity: 0, scale: 0.99 }}
@@ -107,7 +117,10 @@ export function Sheet({
                     </div>
                   )}
                   {title && (
-                    <h2 className="display truncate text-[22px] leading-tight text-ink-50">
+                    <h2
+                      id={titleId}
+                      className="display truncate text-[22px] leading-tight text-ink-50"
+                    >
                       {title}
                     </h2>
                   )}

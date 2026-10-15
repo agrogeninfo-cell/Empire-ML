@@ -25,7 +25,7 @@ npm run dev        # http://localhost:5173
 npm run build          # production bundle → dist/
 npm run preview        # serve the production build
 npm run typecheck      # tsc, no emit
-npm run verify           # all five suites: 678 assertions
+npm run verify           # all five suites: 740 assertions
 npm run verify:calc      # calculation fidelity against the source artefacts
 npm run verify:storage   # vault round-trip, backup fallback, legacy migration
 npm run verify:export    # CSV / XLSX / PDF-pagination fidelity, real workbook round trip
@@ -266,7 +266,7 @@ writes a real workbook with the shipped `xlsx` package into a temp directory,
 reads it back and compares cell by cell, including the 31-character sheet-name
 truncation and the stored column widths.
 
-**`tests/run-render.mjs` — render smoke test (226 assertions).** Mounts the real
+**`tests/run-render.mjs` — render smoke test (288 assertions).** Mounts the real
 `<App />` in jsdom and drives it the way a user would: load demo data, tap a shift
 cell and then **undo** it from the top bar, run the *Mark weekdays* bulk action and
 confirm the month actually fills, walk Cards → Today → Grid, open a payslip and edit
@@ -292,6 +292,33 @@ then Undo the import), and the **estate 24–24 navigation** (Previous / Next /
 count dropping to zero outside the seeded window, the anchor persisting as a
 24th, and navigation never mutating the data).
 
+Five more sections cover the behaviour a premium UI is judged on:
+
+- **Dialogs are real modals.** Every sheet is named (`aria-labelledby` for a
+  titled sheet, `aria-label` for the bare destructive one), focus moves in on
+  open, `Tab` / `Shift+Tab` cycle inside instead of escaping to the page behind,
+  `Escape` dismisses, focus returns to the control that opened the sheet, the
+  body scroll lock is applied *and released*, and the `DELETE` guard grabs focus
+  on step two.
+- **Rates drive every calculation.** Editing the weekday billing rate moves the
+  invoice total by exactly `weekdayShifts × Δrate`, and the document on screen
+  equals what the engine computes from the persisted vault — before and after.
+  Same for the estate male-day rate: the summary grand total moves by
+  `Δrate × male shifts` and the live formula under the entry form quotes the new
+  rate. `Reset defaults` puts the rate card back.
+- **The Poya calendar is editable.** Adding a date grows the persisted list,
+  shows up in the settings list, and reclassifies that date to `POYA` in the
+  period sheet's day map; removing it reverses all three.
+- **Failure paths stay graceful.** jsdom has no 2D canvas, so PDF and PNG export
+  genuinely fail: the suite asserts the error is logged, a toast says so
+  ("PDF failed — try Print instead", "Image failed"), the button does not stick
+  on "Working…", and the workspace is still usable afterwards. `Print` is
+  asserted to reach `window.print()`.
+- **The clipboard degrades honestly.** With a working `navigator.clipboard` the
+  estate CSV preview is copied and confirmed; with neither `clipboard` nor
+  `execCommand` the app says "Clipboard blocked by the browser" instead of
+  pretending.
+
 **`tests/run-css.mjs` — export-compatibility guard (42 assertions).** PDF and PNG
 export rasterise live DOM through `html2canvas` 1.4.1, whose colour parser throws
 on `oklch()`, `oklab()`, `lab()`, `lch()`, `hwb()` and `color-mix()`. Tailwind v4
@@ -305,7 +332,7 @@ document still uses explicit hex.
 ✅ 181 assertions passed — calculations match the source artefacts
 ✅  88 persistence assertions passed — the vault round-trips and migrates
 ✅ 141 export assertions passed — CSV, XLSX and PDF pagination are sound
-✅ 226 render assertions passed — the UI mounts and drives cleanly
+✅ 288 render assertions passed — the UI mounts and drives cleanly
 ✅  42 export-compatibility assertions passed
 ```
 
@@ -345,6 +372,15 @@ Covering the filter chips also made them accessible: each pill now carries
 `aria-pressed` and their row is a `role="group"` with a name, so a screen reader
 announces which filter is active instead of four indistinguishable pills.
 
+A third came out of the same pass: the sheets were dialogs in name only. They
+locked body scroll and closed on `Escape`, but nothing was labelled
+(`aria-modal` with no accessible name) and focus never moved — a keyboard user
+tabbed straight through the modal into the page behind it, and focus was left on
+a hidden trigger when it closed. `src/hooks/useDialogA11y.ts` now gives every
+sheet the same focus-in / focus-restore / `Tab`-trap behaviour, wired once in
+`Sheet.tsx` so the payslip, day, add-staff, period and confirm sheets all
+inherit it.
+
 ---
 
 ## Architecture
@@ -362,7 +398,7 @@ src/
     cn.ts          Tailwind-aware className merge
   data/defaults.ts every default value lifted from the artefacts
   store/AppStore.tsx  context store, undo stack, debounced autosave
-  hooks/           UI preferences, media query, ticking clock
+  hooks/           UI preferences, dialog accessibility (focus trap, Escape)
   components/
     ui/            Reveal, Sheet, Confirm, Toast, Segmented, Field, Metrics
     layout/        Nav (bottom bar + desktop rail), TopBar, Brand, ModuleSwitch

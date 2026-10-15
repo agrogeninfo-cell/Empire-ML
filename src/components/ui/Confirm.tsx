@@ -63,6 +63,7 @@ export function Confirm({
       open={open}
       onClose={close}
       bare
+      ariaLabel={title}
       size="sm"
       className={cn(
         "border",

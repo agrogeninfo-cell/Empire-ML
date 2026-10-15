@@ -16,7 +16,12 @@ import { StrictMode } from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import App from "../src/App";
-import { MONTHS } from "../src/lib/calendar";
+import { MONTHS, MONTHS_SHORT, estatePeriodFor, money, rupeesDot } from "../src/lib/calendar";
+import { computeInvoiceTotals, computeMonthPayslips } from "../src/lib/payroll";
+import { periodTotals } from "../src/lib/estate";
+import { hydrateAppData } from "../src/lib/storage";
+import { DEFAULT_ESTATE_RATES, DEFAULT_INVOICE_RATES } from "../src/data/defaults";
+import type { AppData } from "../src/lib/types";
 
 /* ───────────────────────── tiny harness ───────────────────────── */
 
@@ -292,6 +297,92 @@ async function handFile(input: HTMLInputElement, file: File) {
     input.dispatchEvent(new Event("change", { bubbles: true }));
     await tick(60);
   });
+}
+
+/** The Royal period bar — the button that summarises the month. */
+function royalPeriodBar(): HTMLElement | null {
+  return (
+    Array.from(document.querySelectorAll("button")).find((b) => {
+      const t = b.textContent ?? "";
+      return /shifts ·/.test(t) && /\d+ days/.test(t);
+    }) ?? null
+  );
+}
+
+/** Read the whole vault as a typed AppData, waiting out the debounced save. */
+async function vaultData(): Promise<AppData | null> {
+  await settle(1100);
+  const raw = window.localStorage.getItem("empire_ml:data");
+  return raw ? hydrateAppData(JSON.parse(raw)) : null;
+}
+
+/** A settings panel, found by its heading. */
+function panelByTitle(title: string): HTMLElement | null {
+  const want = title.toLowerCase();
+  const heading = Array.from(document.querySelectorAll("h2, h3")).find(
+    (h) => (h.textContent ?? "").trim().toLowerCase() === want,
+  );
+  if (!heading) return null;
+  return (heading.closest("section") ??
+    heading.parentElement?.parentElement ??
+    null) as HTMLElement | null;
+}
+
+/** A labelled input inside one panel — the same label repeats across panels. */
+function inputInPanel(panelTitle: string, label: string): HTMLInputElement | null {
+  const panel = panelByTitle(panelTitle);
+  if (!panel) return null;
+  for (const l of Array.from(panel.querySelectorAll("label"))) {
+    if ((l.textContent ?? "").trim().toLowerCase() !== label.toLowerCase()) continue;
+    const forId = l.getAttribute("for");
+    const el = forId ? document.getElementById(forId) : l.parentElement?.querySelector("input");
+    if (el instanceof HTMLInputElement) return el;
+  }
+  return null;
+}
+
+async function pressKey(key: string, init: { shiftKey?: boolean } = {}) {
+  await act(async () => {
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...init }),
+    );
+    await tick(30);
+  });
+}
+
+/** Independently derived from the DOM — deliberately not the app's own list. */
+function dialogFocusables(): HTMLElement[] {
+  const d = dialog();
+  if (!d) return [];
+  return Array.from(
+    d.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])',
+    ),
+  );
+}
+
+/** Keeps the final vault read referenced even if the asserts above change. */
+function truthyUnusedGuard(v: unknown): void {
+  if (!v) failures.push("the vault was unreadable at the end of the run");
+  else pass++;
+}
+
+function describeActive(): string {
+  const el = document.activeElement as HTMLElement | null;
+  if (!el) return "nothing";
+  return `<${el.tagName.toLowerCase()}${el.getAttribute("aria-label") ? ` aria-label="${el.getAttribute("aria-label")}"` : ""}${el.textContent ? ` "${el.textContent.trim().slice(0, 24)}"` : ""}>`;
+}
+
+/** Switch the workspace to the other module. */
+async function switchModule(to: "Royal Hires" | "Millennium Estate") {
+  const from = to === "Royal Hires" ? "Millennium Estate" : "Royal Hires";
+  const trigger = Array.from(document.querySelectorAll("button")).find((b) =>
+    (b.textContent ?? "").includes(from),
+  );
+  await click(trigger ?? null, `module switcher (→ ${to})`);
+  await settle(180);
+  await clickText(to);
+  await settle(SETTLE_SWAP);
 }
 
 /* ───────────────────────── export capture ───────────────────────── */
@@ -799,10 +890,7 @@ export async function main() {
 
   section("18 · Period sheet");
   // The period bar is the only button that reports shifts and days together.
-  const periodBar = Array.from(document.querySelectorAll("button")).find((b) => {
-    const t = b.textContent ?? "";
-    return /shifts ·/.test(t) && /\d+ days/.test(t);
-  });
+  const periodBar = royalPeriodBar();
   check(!!periodBar, "the period bar is a button that summarises the month");
   const barShifts = () => {
     const m = (periodBar?.textContent ?? "").match(/(\d+) shifts · (\d+) records/);
@@ -1213,6 +1301,398 @@ export async function main() {
     liveLogged,
     "navigating periods did not add or drop estate records",
   );
+
+  section("23 · Dialog keyboard & naming");
+  await switchModule("Royal Hires");
+  await clickTab("Attendance");
+  await settle(SETTLE_TAB);
+
+  const trigger = royalPeriodBar();
+  check(!!trigger, "the period bar is back to open a dialog from");
+  if (trigger) trigger.focus();
+  await click(trigger, "period bar (a11y)");
+  await settle(SETTLE_SWAP + 120);
+
+  const dlg = dialog();
+  check(!!dlg, "the period sheet is a dialog");
+  check(dlg?.getAttribute("aria-modal") === "true", "and it is marked modal");
+  const namedBy = dlg?.getAttribute("aria-labelledby") ?? "";
+  check(!!namedBy, "the dialog points at its own title for an accessible name");
+  check(
+    (document.getElementById(namedBy)?.textContent ?? "").trim() === "Select Period",
+    `and that title is "Select Period" (got "${document.getElementById(namedBy)?.textContent ?? ""}")`,
+  );
+  check(
+    !!dlg && dlg.contains(document.activeElement) && document.activeElement !== document.body,
+    `focus moves into the dialog on open (active: ${describeActive()})`,
+  );
+  check(
+    document.body.style.overflow === "hidden",
+    "the page behind a modal is scroll-locked",
+  );
+
+  const items = dialogFocusables();
+  check(items.length >= 5, `the sheet holds a keyboard route (${items.length} focusable controls)`);
+  if (items.length >= 2) {
+    const first = items[0];
+    const last = items[items.length - 1];
+
+    last.focus();
+    await pressKey("Tab");
+    check(
+      document.activeElement === first,
+      `Tab from the last control wraps to the first (went to ${describeActive()})`,
+    );
+
+    first.focus();
+    await pressKey("Tab", { shiftKey: true });
+    check(
+      document.activeElement === last,
+      `Shift+Tab from the first control wraps to the last (went to ${describeActive()})`,
+    );
+  }
+
+  await pressKey("Escape");
+  await settle(SETTLE_SWAP);
+  check(!dialog(), "Escape closes the sheet");
+  check(
+    document.activeElement === trigger,
+    `focus returns to the control that opened it (active: ${describeActive()})`,
+  );
+  check(document.body.style.overflow !== "hidden", "and the scroll lock is released");
+
+  // The destructive flow is a bare sheet, so it has to name itself.
+  await clickTab("Settings");
+  await settle(SETTLE_TAB);
+  await clickText("Delete all data & reset");
+  await settle(SETTLE_SWAP + 120);
+  check(
+    dialog()?.getAttribute("aria-label") === "Are you absolutely sure?",
+    `the bare confirm dialog carries an accessible name (got "${dialog()?.getAttribute("aria-label") ?? ""}")`,
+  );
+  check(
+    !!dialog()?.contains(document.activeElement) && document.activeElement !== document.body,
+    "focus moves into the destructive dialog too",
+  );
+  await clickInDialog("Yes, continue");
+  await settle(SETTLE_SWAP + 120);
+  const guardInput = document.querySelector<HTMLInputElement>('input[placeholder="DELETE"]');
+  check(
+    !!guardInput && document.activeElement === guardInput,
+    `the type-to-confirm guard takes focus (active: ${describeActive()})`,
+  );
+  await pressKey("Escape");
+  await settle(SETTLE_SWAP);
+  check(!dialog(), "Escape abandons the destructive flow");
+  check(
+    !!(await vaultData())?.royal.employees.length,
+    "and nothing was deleted",
+  );
+
+  section("24 · Rates drive every calculation");
+  const invoiceTotalText = () => {
+    const row = Array.from(document.querySelectorAll("table tr")).find((r) =>
+      /^total/i.test((r.textContent ?? "").trim()),
+    );
+    return (row?.lastElementChild?.textContent ?? "").trim();
+  };
+  const totalsFor = (d: AppData) =>
+    computeInvoiceTotals(
+      computeMonthPayslips(
+        d.royal.employees,
+        d.royal.attendance,
+        d.royal.period,
+        d.royal.payrollRates,
+        d.royal.deductions,
+        d.royal.poyaDays,
+        d.royal.bonusDays,
+        d.royal.bonusAmount,
+      ),
+      d.royal.invoiceRates,
+      d.royal.otHours,
+    );
+
+  await clickTab("Invoice");
+  await settle(SETTLE_TAB);
+  const dataBefore = await vaultData();
+  check(!!dataBefore, "the vault is readable mid-session");
+  const totalsBefore = totalsFor(dataBefore!);
+  check(
+    invoiceTotalText() === rupeesDot(totalsBefore.total),
+    `the invoice on screen is the engine's total ("${invoiceTotalText()}" vs "${rupeesDot(totalsBefore.total)}")`,
+  );
+  check(totalsBefore.weekday > 0, `the demo month bills weekday shifts (${totalsBefore.weekday})`);
+
+  await clickTab("Settings");
+  await settle(SETTLE_TAB);
+  const billRate = inputInPanel("Invoice rates & billing rules", "Weekday");
+  check(!!billRate, "the weekday billing rate is reachable inside its own panel");
+  eqNum(
+    billRate?.valueAsNumber ?? -1,
+    DEFAULT_INVOICE_RATES.weekday,
+    "and starts at the rate lifted from the artefact",
+  );
+  if (billRate) {
+    await typeInto(billRate, String(DEFAULT_INVOICE_RATES.weekday + 100));
+    await settle(220);
+    await clickTab("Invoice");
+    await settle(SETTLE_TAB);
+
+    const dataAfter = await vaultData();
+    eqNum(
+      dataAfter?.royal.invoiceRates.weekday ?? -1,
+      DEFAULT_INVOICE_RATES.weekday + 100,
+      "the edited rate persisted to the vault",
+    );
+    const totalsAfter = totalsFor(dataAfter!);
+    eqNum(
+      totalsAfter.total - totalsBefore.total,
+      totalsBefore.weekday * 100,
+      "the invoice moved by exactly weekdayShifts × Rs 100",
+    );
+    check(
+      invoiceTotalText() === rupeesDot(totalsAfter.total),
+      `and the document on screen moved with it ("${invoiceTotalText()}")`,
+    );
+
+    // Put the rate back — later sections compare against the defaults.
+    await clickTab("Settings");
+    await settle(SETTLE_TAB);
+    const restore = inputInPanel("Invoice rates & billing rules", "Weekday");
+    if (restore) await typeInto(restore, String(DEFAULT_INVOICE_RATES.weekday));
+    await settle(220);
+    const dataRestored = await vaultData();
+    eqNum(
+      dataRestored?.royal.invoiceRates.weekday ?? -1,
+      DEFAULT_INVOICE_RATES.weekday,
+      "the rate can be set back",
+    );
+  }
+
+  section("25 · Poya calendar editing");
+  const poyaPanel = panelByTitle("Poya days");
+  check(!!poyaPanel, "the Poya panel is on the settings tab");
+  const poyaField = document.querySelector<HTMLInputElement>('input[aria-label="New Poya date"]');
+  check(!!poyaField, "a new Poya day can be entered by date");
+  const probeKey = (() => {
+    const known = dataBefore?.royal.poyaDays ?? [];
+    for (const d of [20, 19, 18, 17]) {
+      const key = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      if (!known.includes(key)) return key;
+    }
+    return "";
+  })();
+  check(!!probeKey, `found a date in this month that is not a Poya day yet (${probeKey})`);
+  if (poyaField && probeKey && poyaPanel) {
+    const poyaBefore = (await vaultData())?.royal.poyaDays.length ?? 0;
+    await typeInto(poyaField, probeKey);
+    await settle(120);
+    const addButton = Array.from(poyaPanel.querySelectorAll("button")).find(
+      (b) => (b.textContent ?? "").trim() === "Add",
+    );
+    check(!!addButton && !addButton?.hasAttribute("disabled"), "Add unlocks once a date is entered");
+    await click(addButton ?? null, "Add Poya day");
+    await settle(240);
+    const withPoya = await vaultData();
+    eqNum(
+      withPoya?.royal.poyaDays.length ?? 0,
+      poyaBefore + 1,
+      "the Poya list grew by one and persisted",
+    );
+    check(
+      (withPoya?.royal.poyaDays ?? []).includes(probeKey),
+      `and it holds ${probeKey}`,
+    );
+    const [py, pm, pd] = probeKey.split("-");
+    has(
+      `${Number(pd)} ${MONTHS_SHORT[Number(pm) - 1]} ${py}`,
+      `the new Poya day is listed on screen as ${Number(pd)} ${MONTHS_SHORT[Number(pm) - 1]} ${py}`,
+    );
+
+    // The calendar must reclassify that date everywhere it is drawn.
+    await click(royalPeriodBar(), "period bar (day map)");
+    await settle(SETTLE_SWAP + 120);
+    const cell = dialog()?.querySelector(`div[title^="${probeKey}"]`);
+    check(!!cell, `the day map draws ${probeKey}`);
+    check(
+      (cell?.getAttribute("title") ?? "").includes("POYA"),
+      `and classifies it as POYA (title: "${cell?.getAttribute("title") ?? ""}")`,
+    );
+    await pressKey("Escape");
+    await settle(SETTLE_SWAP);
+
+    // Take it back out again.
+    await clickTab("Settings");
+    await settle(SETTLE_TAB);
+    await click(
+      document.querySelector(`button[aria-label="Remove Poya day ${probeKey}"]`),
+      "Remove Poya day",
+    );
+    await settle(260);
+    const withoutPoya = await vaultData();
+    eqNum(
+      withoutPoya?.royal.poyaDays.length ?? 0,
+      poyaBefore,
+      "removing a Poya day shrinks the list back",
+    );
+    check(
+      !(withoutPoya?.royal.poyaDays ?? []).includes(probeKey),
+      "and the date is gone from the vault",
+    );
+  }
+
+  section("26 · Document actions");
+  await clickTab("Invoice");
+  await settle(SETTLE_TAB);
+  let printed = 0;
+  (window as unknown as { print: () => void }).print = () => {
+    printed++;
+  };
+  await clickButton("Print");
+  await settle(160);
+  eqNum(printed, 1, "Print hands the document to the browser's print dialog");
+
+  // jsdom has no 2D canvas, so html2canvas cannot rasterise. What matters is
+  // that the failure is reported and the workspace stays usable.
+  const realConsoleError = console.error;
+  let rasterErrors = 0;
+  console.error = () => {
+    rasterErrors++;
+  };
+  await clickButton("PDF");
+  await settle(1600);
+  console.error = realConsoleError;
+  check(rasterErrors > 0, "the rasteriser failure is logged for diagnosis");
+  const pdfButton = Array.from(document.querySelectorAll("button")).find((b) =>
+    ["PDF", "Working…"].includes((b.textContent ?? "").trim()),
+  );
+  check(
+    !!pdfButton && (pdfButton.textContent ?? "").trim() === "PDF" && !pdfButton.hasAttribute("disabled"),
+    `the PDF button recovers instead of sticking on "Working…" (got "${pdfButton?.textContent ?? "missing"}")`,
+  );
+  has("PDF failed", "a failed PDF is reported, not swallowed");
+  await clickButton("PNG");
+  await settle(1600);
+  has("Image failed", "a failed PNG is reported too");
+  check(
+    document.querySelectorAll("table").length > 0 && !!royalPeriodBar(),
+    "the invoice and the workspace are both still on screen afterwards",
+  );
+
+  section("27 · Estate rates, reset and clipboard");
+  await switchModule("Millennium Estate");
+  await clickTab("Rates");
+  await settle(SETTLE_TAB);
+  const maleDayField = inputByLabel("Male day");
+  check(!!maleDayField, "the male day rate is editable");
+  eqNum(
+    maleDayField?.valueAsNumber ?? -1,
+    DEFAULT_ESTATE_RATES.maleDay,
+    "and starts at the artefact's rate",
+  );
+  if (maleDayField) {
+    await typeInto(maleDayField, String(DEFAULT_ESTATE_RATES.maleDay + 200));
+    await settle(260);
+    const withRate = await vaultData();
+    eqNum(
+      withRate?.estate.rates.maleDay ?? -1,
+      DEFAULT_ESTATE_RATES.maleDay + 200,
+      "the edited estate rate persisted",
+    );
+
+    await clickTab("Summary");
+    await settle(SETTLE_TAB);
+    const liveWindow = estatePeriodFor(
+      new Date(`${withRate!.estate.periodAnchor}T00:00:00`),
+    );
+    const grand = periodTotals(withRate!.estate.records, liveWindow, withRate!.estate.rates);
+    has(
+      `Rs ${money(grand.grand)}`,
+      `the summary grand total follows the new rate (expected Rs ${money(grand.grand)})`,
+    );
+    const grandDefault = periodTotals(
+      withRate!.estate.records,
+      liveWindow,
+      DEFAULT_ESTATE_RATES,
+    );
+    eqNum(
+      grand.grand - grandDefault.grand,
+      200 * grand.m,
+      "the total rose by exactly Rs 200 × male shifts",
+    );
+
+    await clickTab("Entry");
+    await settle(SETTLE_TAB);
+    has(
+      `M × ${DEFAULT_ESTATE_RATES.maleDay + 200}`,
+      "the live formula under the entry form quotes the edited rate",
+    );
+
+    await clickTab("Rates");
+    await settle(SETTLE_TAB);
+    await clickButton("Reset defaults");
+    await settle(300);
+    has("Rates restored to defaults", "the reset says what it did");
+    const reset = await vaultData();
+    eqNum(
+      reset?.estate.rates.maleDay ?? -1,
+      DEFAULT_ESTATE_RATES.maleDay,
+      "and the rate card is back to the artefact's defaults",
+    );
+  }
+
+  await clickTab("Export");
+  await settle(SETTLE_TAB);
+  const clipboardWrites: string[] = [];
+  const realClipboard = (navigator as unknown as { clipboard?: unknown }).clipboard;
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: {
+      writeText: async (text: string) => {
+        clipboardWrites.push(text);
+      },
+    },
+  });
+  await clickButton("Copy");
+  await settle(320);
+  eqNum(clipboardWrites.length, 1, "Copy goes through the async Clipboard API when it exists");
+  check(
+    clipboardWrites[0]?.startsWith("Year,Month,Day,") ?? false,
+    `and it copies the canonical CSV header (got "${(clipboardWrites[0] ?? "").slice(0, 40)}")`,
+  );
+  has("CSV copied to clipboard", "a successful copy is confirmed");
+  has("Copied", "and the button flips to Copied");
+
+  // Now the hostile case: no Clipboard API and execCommand unavailable —
+  // exactly what an insecure origin or an older browser gives you.
+  await settle(1900); // let the button leave its "Copied" state
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: realClipboard });
+  const realExec = document.execCommand;
+  (document as unknown as { execCommand?: () => boolean }).execCommand = () => false;
+  await clickButton("Copy");
+  await settle(320);
+  document.execCommand = realExec;
+  has("Clipboard blocked by the browser", "a blocked clipboard is reported, not silent");
+  eqNum(clipboardWrites.length, 1, "and nothing was written the second time");
+
+  // The printable statement is the estate's document surface.
+  printed = 0;
+  await clickButton("Print");
+  await settle(200);
+  eqNum(printed, 1, "the estate statement prints through the browser dialog too");
+
+  // Nothing in the vault should have changed except the rates we reset.
+  const finalVault = await vaultData();
+  eqNum(
+    finalVault?.estate.rates.maleDay ?? -1,
+    DEFAULT_ESTATE_RATES.maleDay,
+    "the estate rate card ends the run on the defaults",
+  );
+  check(
+    Object.keys(finalVault?.estate.records ?? {}).length > 0,
+    "and the estate records survived every rate edit",
+  );
+  truthyUnusedGuard(finalVault);
 
   report(root, container);
 }
