@@ -16,7 +16,7 @@ import { StrictMode } from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import App from "../src/App";
-import { MONTHS, MONTHS_SHORT, estatePeriodFor, money, rupeesDot } from "../src/lib/calendar";
+import { MONTHS, MONTHS_SHORT, buildMonth, estatePeriodFor, money, rupeesDot } from "../src/lib/calendar";
 import { computeInvoiceTotals, computeMonthPayslips } from "../src/lib/payroll";
 import { periodTotals } from "../src/lib/estate";
 import { hydrateAppData } from "../src/lib/storage";
@@ -1693,6 +1693,200 @@ export async function main() {
     "and the estate records survived every rate edit",
   );
   truthyUnusedGuard(finalVault);
+
+
+/* ════════════════════════════════════════════════════════════════════
+ * 28 — Bulk actions must respect the selection
+ *
+ * With nothing selected the bulk buttons hit every visible card — the
+ * convenient default. With a selection they must hit *only* that
+ * selection, or clearing one person's month silently erases the roster.
+ * ════════════════════════════════════════════════════════════════════ */
+section("28 · Bulk actions respect the selection");
+await switchModule("Royal Hires");
+await clickTab("Attendance");
+await settle(SETTLE_TAB);
+await clickSegment("Cards");
+await settle(SETTLE_SWAP);
+
+const selBefore = await vaultData();
+check(!!selBefore, "the vault is readable before the selection test");
+const selDays = buildMonth(
+  selBefore?.royal.period ?? { y: 2026, m: 10 },
+  selBefore?.royal.poyaDays ?? [],
+).map((d) => d.key);
+eqNum(selDays.length, 31, "October 2026 is a 31-day range");
+
+const chosen = selBefore?.royal.employees[0];
+const chosenId = chosen?.id ?? "";
+const markedCount = (d: AppData | null, id: string) =>
+  d ? selDays.filter((k) => !!d.royal.attendance[id]?.[k]).length : -1;
+const marksBefore = markedCount(selBefore, chosenId);
+check(marksBefore > 10, `${chosen?.name} starts with a marked month (${marksBefore} days)`);
+
+await click(
+  document.querySelector(`button[aria-label="Select ${chosen?.name}"]`),
+  `select ${chosen?.name}`,
+);
+await settle(SETTLE_TAB);
+has("1 selected", "the bulk bar reports a one-person selection");
+
+await clickButton("Clear range");
+await settle(SETTLE_SWAP);
+has(`Cleared ${selDays.length} days · 1 staff`, "the toast scopes the clear to the selection");
+
+const selAfter = await vaultData();
+check(!!selAfter, "the vault is readable after the scoped clear");
+eqNum(markedCount(selAfter, chosenId), 0, "every day of the selected worker is cleared");
+
+if (selBefore && selAfter) {
+  for (const emp of selBefore.royal.employees) {
+    if (emp.id === chosenId) continue;
+    const untouched = selDays.every(
+      (k) =>
+        JSON.stringify(selBefore.royal.attendance[emp.id]?.[k] ?? null) ===
+        JSON.stringify(selAfter.royal.attendance[emp.id]?.[k] ?? null),
+    );
+    check(untouched, `${emp.name} is untouched by a one-person bulk action`);
+  }
+}
+
+await click(document.querySelector('button[title="Undo the last change"]'), "top-bar Undo");
+await settle(SETTLE_SWAP);
+const selUndone = await vaultData();
+eqNum(markedCount(selUndone, chosenId), marksBefore, "Undo brings every cleared day back");
+
+await clickButton("Select all visible");
+await settle(SETTLE_TAB);
+has(
+  `${selBefore?.royal.employees.length ?? 0} selected`,
+  "Select all visible selects the whole unfiltered roster",
+);
+await clickButton("Clear selection");
+await settle(SETTLE_TAB);
+has(
+  `Bulk actions hit all ${selBefore?.royal.employees.length ?? 0} visible`,
+  "and clearing the selection restores the all-visible default",
+);
+
+/* ════════════════════════════════════════════════════════════════════
+ * 29 — A reload must boot from the vault
+ *
+ * Everything above happens inside one React tree. What matters for a
+ * local-first app is the fresh page load: the saved data, the module and
+ * tab you left, and no welcome sheet.
+ * ════════════════════════════════════════════════════════════════════ */
+section("29 · A reload boots from the vault");
+const uiPrefs = JSON.parse(
+  window.localStorage.getItem("empire_ml:ui") ?? "{}",
+) as Record<string, string>;
+check(
+  uiPrefs["royal.tab"] === "attendance",
+  `view state is kept outside the data vault (${uiPrefs["royal.tab"]})`,
+);
+check(
+  !(window.localStorage.getItem("empire_ml:data") ?? "").includes("royal.tab"),
+  "so a data reset cannot lose somebody's favourite view",
+);
+
+const preReload = await vaultData();
+check(!!preReload, "the vault holds data just before the reload");
+
+act(() => root?.unmount());
+await settle(SETTLE_TAB);
+await act(async () => {
+  root = createRoot(container);
+  root.render(
+    <StrictMode>
+      <App />
+    </StrictMode>,
+  );
+  await tick(40);
+});
+await settle(800);
+
+lacks("Start your payroll workspace", "a vault with data never shows the welcome sheet");
+lacks("Legacy data migrated", "an ordinary boot does not claim to have migrated anything");
+check(!!royalPeriodBar(), "the module you left open is the one that comes back");
+
+const postReload = await vaultData();
+eqNum(
+  postReload?.royal.employees.length ?? -1,
+  preReload?.royal.employees.length ?? -2,
+  "the roster survives the reload",
+);
+const savedNames = new Set(postReload?.royal.employees.map((e) => e.name) ?? []);
+const onScreen = visibleStaff();
+check(
+  onScreen.length === savedNames.size && onScreen.every((n) => savedNames.has(n)),
+  "and every saved worker is on screen, in the tab you left",
+);
+eqNum(
+  markedCount(postReload, chosenId),
+  marksBefore,
+  "the month's marks survive the reload too",
+);
+
+/* ════════════════════════════════════════════════════════════════════
+ * 30 — The original artefact's storage migrates on boot
+ *
+ * Someone who has been running the single-file Royal Hires artefact has
+ * `rh_final_data` in localStorage and nothing else. Opening this app must
+ * pick that up, say so, and keep it in the new vault from the first edit.
+ * ════════════════════════════════════════════════════════════════════ */
+section("30 · Legacy artefact data migrates into the new vault");
+const legacyDoc = {
+  employees: [
+    { id: "e1", name: "Sunil Bandara", nic: "198812345678", rate: 3400, isFemale: false },
+    { id: "e2", name: "Kanthi Silva", nic: "199087654321", rate: 2900, isFemale: true },
+  ],
+  attendance: { e1: { "2026-10-01": { D: true, N: false } } },
+};
+window.localStorage.clear();
+window.localStorage.setItem("rh_final_data", JSON.stringify(legacyDoc));
+
+act(() => root?.unmount());
+await settle(SETTLE_TAB);
+await act(async () => {
+  root = createRoot(container);
+  root.render(
+    <StrictMode>
+      <App />
+    </StrictMode>,
+  );
+  await tick(40);
+});
+await settle(900);
+
+has("Legacy data migrated into the new vault", "boot reports the migration");
+has("Sunil Bandara", "legacy worker 1 is on the roster");
+has("Kanthi Silva", "legacy worker 2 is on the roster");
+lacks("Kamal Perera", "this is the migrated vault, not a merge with the demo data");
+
+await clickTab("Attendance");
+await settle(SETTLE_TAB);
+await clickSegment("Cards");
+await settle(SETTLE_SWAP);
+const legacyCell = Array.from(
+  document.querySelectorAll<HTMLElement>('button[aria-pressed="false"]'),
+).find((b) => /^(Day \d+: )?OFF$/.test(b.getAttribute("aria-label") ?? ""));
+await click(legacyCell ?? null, "a shift cell in the migrated roster");
+await settle(1300);
+
+const migrated = await vaultData();
+check(
+  migrated?.royal.employees.map((e) => e.name).join("|") === "Sunil Bandara|Kanthi Silva",
+  `the first edit writes the migrated roster into the new vault (${migrated?.royal.employees.map((e) => e.name).join("|")})`,
+);
+check(
+  (migrated?.royal.poyaDays.length ?? 0) > 0,
+  `and the migrated workspace still knows the Poya calendar (${migrated?.royal.poyaDays.length ?? 0} days)`,
+);
+check(
+  window.localStorage.getItem("rh_final_data") === JSON.stringify(legacyDoc),
+  "the legacy key is left alone, so the old artefact still opens with its own data",
+);
+
 
   report(root, container);
 }

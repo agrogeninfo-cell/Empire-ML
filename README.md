@@ -25,7 +25,7 @@ npm run dev        # http://localhost:5173
 npm run build          # production bundle → dist/
 npm run preview        # serve the production build
 npm run typecheck      # tsc, no emit
-npm run verify           # all five suites: 740 assertions
+npm run verify           # all five suites: 772 assertions
 npm run verify:calc      # calculation fidelity against the source artefacts
 npm run verify:storage   # vault round-trip, backup fallback, legacy migration
 npm run verify:export    # CSV / XLSX / PDF-pagination fidelity, real workbook round trip
@@ -266,7 +266,7 @@ writes a real workbook with the shipped `xlsx` package into a temp directory,
 reads it back and compares cell by cell, including the 31-character sheet-name
 truncation and the stored column widths.
 
-**`tests/run-render.mjs` — render smoke test (288 assertions).** Mounts the real
+**`tests/run-render.mjs` — render smoke test (320 assertions).** Mounts the real
 `<App />` in jsdom and drives it the way a user would: load demo data, tap a shift
 cell and then **undo** it from the top bar, run the *Mark weekdays* bulk action and
 confirm the month actually fills, walk Cards → Today → Grid, open a payslip and edit
@@ -318,6 +318,20 @@ Five more sections cover the behaviour a premium UI is judged on:
   estate CSV preview is copied and confirmed; with neither `clipboard` nor
   `execCommand` the app says "Clipboard blocked by the browser" instead of
   pretending.
+- **Bulk actions respect the selection.** Selecting one worker and clearing the
+  range empties *that* worker's month and leaves every other roster entry
+  byte-identical in the vault; Undo restores the exact day count, and
+  `Select all visible` / `Clear selection` drive the bulk bar's own copy.
+- **A reload boots from the vault.** The suite unmounts the tree and mounts a
+  fresh `<App />` against the same `localStorage`: no welcome sheet, the module
+  and tab you left are showing, the roster and the month's marks are intact, and
+  the view preferences in `empire_ml:ui` are demonstrably a different key from
+  the data vault — so a data reset cannot cost someone their favourite view.
+- **The old artefact's storage migrates on boot.** With only `rh_final_data` in
+  `localStorage`, a fresh mount announces "Legacy data migrated into the new
+  vault", shows the legacy roster instead of merging it with the demo data,
+  carries it into `empire_ml:data` on the first edit, and leaves the legacy key
+  untouched so the original single-file app still opens with its own data.
 
 **`tests/run-css.mjs` — export-compatibility guard (42 assertions).** PDF and PNG
 export rasterise live DOM through `html2canvas` 1.4.1, whose colour parser throws
@@ -332,7 +346,7 @@ document still uses explicit hex.
 ✅ 181 assertions passed — calculations match the source artefacts
 ✅  88 persistence assertions passed — the vault round-trips and migrates
 ✅ 141 export assertions passed — CSV, XLSX and PDF pagination are sound
-✅ 288 render assertions passed — the UI mounts and drives cleanly
+✅ 320 render assertions passed — the UI mounts and drives cleanly
 ✅  42 export-compatibility assertions passed
 ```
 
