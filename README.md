@@ -25,7 +25,7 @@ npm run dev        # http://localhost:5173
 npm run build          # production bundle → dist/
 npm run preview        # serve the production build
 npm run typecheck      # tsc, no emit
-npm run verify           # all three suites: 364 assertions
+npm run verify           # all three suites: 378 assertions
 npm run verify:calc      # calculation fidelity against the source artefacts
 npm run verify:storage   # vault round-trip, backup fallback, legacy migration
 npm run verify:render    # mounts the real <App /> in jsdom and drives the UI
@@ -215,19 +215,22 @@ strings coerced, `null`s zeroed, non-boolean shift marks dropped, employees
 without an id rejected, unknown rate keys not smuggled into state, and an
 invalid period falling back rather than corrupting the calendar.
 
-**`tests/run-render.mjs` — render smoke test (112 assertions).** Mounts the real
+**`tests/run-render.mjs` — render smoke test (126 assertions).** Mounts the real
 `<App />` in jsdom and drives it the way a user would: load demo data, tap a shift
-cell and then **undo** it from the top bar, walk Cards → Today → Grid, open a
-payslip and edit a deduction, read all seven invoice lines, fire a CSV export and
-assert the file contents, walk the two-step `DELETE` reset guard (including that
+cell and then **undo** it from the top bar, run the *Mark weekdays* bulk action and
+confirm the month actually fills, walk Cards → Today → Grid, open a payslip and edit
+a deduction, read all seven invoice lines, fire a CSV export and assert the file
+contents column by column, walk the two-step `DELETE` reset guard (including that
 lowercase `delete` does *not* unlock it), switch to the Estate module and walk all
-five of its tabs, confirm the scroll-reveal behaviour is actually wired up, then
-assert the vault landed in `localStorage` under both keys.
+five of its tabs, **save a half-shift and confirm the overwrite persists under the
+same date key**, add a new employee and confirm the roster grows, confirm the
+scroll-reveal behaviour is actually wired up, then assert the vault landed in
+`localStorage` under both keys.
 
 ```
 ✅ 164 assertions passed — calculations match the source artefacts
 ✅  88 persistence assertions passed — the vault round-trips and migrates
-✅ 112 render assertions passed — the UI mounts and drives cleanly
+✅ 126 render assertions passed — the UI mounts and drives cleanly
 ```
 
 The render suite has already earned its keep — it caught defects that

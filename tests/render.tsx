@@ -19,6 +19,11 @@ import App from "../src/App";
 let pass = 0;
 const failures: string[] = [];
 
+function eqNum(actual: number, expected: number, label: string) {
+  if (Math.abs(actual - expected) < 1e-9) pass++;
+  else failures.push(`${label}\n     expected ${expected}\n     actual   ${actual}`);
+}
+
 function check(cond: boolean, label: string) {
   if (cond) pass++;
   else failures.push(label);
@@ -66,6 +71,17 @@ async function typeInto(input: HTMLInputElement, value: string) {
     input.dispatchEvent(new Event("input", { bubbles: true }));
     await tick(30);
   });
+}
+
+/** Read the persisted vault, waiting out the debounced autosave. */
+async function readVault(): Promise<{
+  royal?: { employees?: { name: string }[]; attendance?: Record<string, Record<string, unknown>> };
+  estate?: { records?: Record<string, { maleCount?: number }> };
+  activeModule?: string;
+} | null> {
+  await settle(1100); // autosave is debounced ~700ms
+  const raw = window.localStorage.getItem("empire_ml:data");
+  return raw ? (JSON.parse(raw) as never) : null;
 }
 
 /**
@@ -149,6 +165,23 @@ async function clickInDialog(text: string) {
     (b) => (b.textContent ?? "").trim().toLowerCase() === needle,
   );
   return click(btn ?? null, `dialog button "${text}"`);
+}
+
+/**
+ * Click a <button> whose label contains `needle`.
+ *
+ * Restricted to buttons on purpose: neighbouring badges and helper spans reuse
+ * the same words ("Exists · will overwrite" sits right beside the Overwrite
+ * button) and are deeper in the tree, so an unscoped search clicks the span.
+ * Among matching buttons the shortest label wins as the most specific.
+ */
+async function clickButton(needle: string) {
+  const want = needle.toLowerCase();
+  const candidates = Array.from(document.querySelectorAll("button"))
+    .filter((b) => !b.hasAttribute("disabled"))
+    .filter((b) => (b.textContent ?? "").toLowerCase().includes(want))
+    .sort((a, b) => (a.textContent ?? "").length - (b.textContent ?? "").length);
+  return click(candidates[0] ?? null, `button "${needle}"`);
 }
 
 /** Click a control in the segmented view switcher by its exact label. */
@@ -300,6 +333,25 @@ export async function main() {
   }
 
   has("Tap a cell to cycle", "the tap-to-cycle affordance is explained");
+
+  section("4b · Bulk marking");
+  const vaultBefore = await readVault();
+  const shiftsBefore = Object.values(vaultBefore?.royal?.attendance ?? {}).reduce(
+    (n, days) => n + Object.keys(days ?? {}).length,
+    0,
+  );
+  await clickText("Mark weekdays D");
+  await settle(160);
+  const vaultAfterBulk = await readVault();
+  const shiftsAfter = Object.values(vaultAfterBulk?.royal?.attendance ?? {}).reduce(
+    (n, days) => n + Object.keys(days ?? {}).length,
+    0,
+  );
+  check(
+    shiftsAfter > shiftsBefore,
+    `"Mark weekdays D" bulk-fills the month (${shiftsBefore} → ${shiftsAfter} marked days)`,
+  );
+  has("staff", "the bulk action reports how many staff it touched");
 
   section("5 · Today & Grid views");
   await clickSegment("Today");
@@ -491,6 +543,36 @@ export async function main() {
   has("Late hours", "late hours field");
   has("Day amount", "live day-amount preview");
 
+  // The artefact's core rule: one record per date, and saving overwrites.
+  const maleInput = document.querySelector<HTMLInputElement>(
+    'input[aria-label="Male count"]',
+  );
+  check(!!maleInput, "the male count field is reachable");
+  has("Exists · will overwrite", "a seeded date is flagged as existing, not new");
+  if (maleInput) {
+    await typeInto(maleInput, "9.5");
+    await settle(140);
+    check(maleInput.value === "9.5", "the 0.5-step count accepts a half shift");
+    has("Overwrite", "the save button reflects that this date already exists");
+
+    await clickButton("Overwrite");
+    await settle(200);
+    const vault = await readVault();
+    const today = new Date();
+    const tKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(
+      today.getDate(),
+    ).padStart(2, "0")}`;
+    eqNum(
+      vault?.estate?.records?.[tKey]?.maleCount ?? -1,
+      9.5,
+      "overwriting persists to the vault under the same date key",
+    );
+    check(
+      Object.keys(vault?.estate?.records ?? {}).length > 0,
+      "the overwrite did not duplicate or drop the record set",
+    );
+  }
+
   section("14 · Estate summary & export");
   await clickTab("Summary");
   await settle(SETTLE_TAB);
@@ -585,6 +667,49 @@ export async function main() {
   }
   check(!!window.localStorage.getItem("empire_ml:data:backup"), "the backup key mirrors the vault");
   check(!!window.localStorage.getItem("empire_ml:meta"), "storage metadata was written");
+
+  section("17 · Add staff");
+  const switchBack = Array.from(document.querySelectorAll("button")).find((b) =>
+    (b.textContent ?? "").includes("Millennium Estate"),
+  );
+  await click(switchBack ?? null, "module switcher (back to payroll)");
+  await settle(180);
+  await clickText("Royal Hires");
+  await settle(SETTLE_SWAP);
+  // The workspace restores the tab it was left on (settings), so navigate back.
+  await clickTab("Attendance");
+  await settle(SETTLE_TAB);
+  has("Tap a cell to cycle", "back on the payroll attendance tab");
+
+  const before = await readVault();
+  const headcountBefore = before?.royal?.employees?.length ?? 0;
+
+  await clickButton("Add staff");
+  await settle(SETTLE_SWAP);
+  has("Add staff", "the add-staff sheet opens");
+
+  const nameInput = document.querySelector<HTMLInputElement>('input[placeholder="e.g. Kamal Perera"]');
+  const nicInput = document.querySelector<HTMLInputElement>('input[placeholder="199012345678"]');
+  check(!!nameInput && !!nicInput, "the add-staff form exposes name and NIC fields");
+  if (nameInput && nicInput) {
+    await typeInto(nameInput, "Test Worker");
+    await typeInto(nicInput, "199187654321");
+    await settle(120);
+    await clickButton("Add employee");
+    await settle(SETTLE_SWAP);
+    has("Test Worker", "the new employee appears in the roster immediately");
+
+    const after = await readVault();
+    eqNum(
+      after?.royal?.employees?.length ?? 0,
+      headcountBefore + 1,
+      `the roster grew by one and persisted (${headcountBefore} → ${after?.royal?.employees?.length ?? 0})`,
+    );
+    check(
+      (after?.royal?.employees ?? []).some((e) => e.name === "Test Worker"),
+      "the new employee is in the vault",
+    );
+  }
 
   report(root, container);
 }
