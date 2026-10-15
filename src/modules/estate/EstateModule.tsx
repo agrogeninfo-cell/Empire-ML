@@ -17,6 +17,7 @@ import { useStore } from "@/store/AppStore";
 import { BottomNav } from "@/components/layout/Nav";
 import { useToast } from "@/components/ui/Toast";
 import { Badge, MetricCard, SectionHead } from "@/components/ui/Metrics";
+import { Reveal } from "@/components/ui/Reveal";
 import { cn } from "@/lib/cn";
 import { money, num } from "@/lib/calendar";
 import { dayAmount, formulaText, latePenalty, otValue } from "@/lib/estate";
@@ -223,7 +224,7 @@ export function EstateModule() {
             </div>
 
             {/* formula */}
-            <div className="surface-flat p-4">
+            <Reveal className="surface-flat p-4">
               <div className="eyebrow mb-2">Calculation in force</div>
               <div className="tnum rounded-xl border border-jade-500/22 bg-jade-600/8 px-3.5 py-3 font-mono text-[12.5px] font-semibold text-jade-100">
                 {formulaText(estate.rates)}
@@ -236,10 +237,10 @@ export function EstateModule() {
                   </li>
                 ))}
               </ul>
-            </div>
+            </Reveal>
 
             {/* recent */}
-            <div className="surface overflow-hidden">
+            <Reveal className="surface overflow-hidden" delay={80}>
               <header className="flex items-center justify-between gap-3 px-4 pb-3 pt-4">
                 <div>
                   <div className="eyebrow-gold">Recent entries</div>
@@ -292,7 +293,7 @@ export function EstateModule() {
                     </motion.div>
                   ))}
               </div>
-            </div>
+            </Reveal>
           </div>
         )}
 

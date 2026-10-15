@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Table2 } from "lucide-react";
 import { Segmented } from "@/components/ui/Segmented";
 import { Badge, EmptyState, MetricCard, Row, SectionHead } from "@/components/ui/Metrics";
+import { Reveal } from "@/components/ui/Reveal";
 import { cn } from "@/lib/cn";
 import { money, num } from "@/lib/calendar";
 import { averagePerLoggedDay, dayAmount } from "@/lib/estate";
@@ -82,7 +83,7 @@ export function EstateSummary({ estate, derived, onTab }: Props) {
       </div>
 
       {/* table */}
-      <div className="surface overflow-hidden">
+      <Reveal className="surface overflow-hidden">
         <div className="grid-scroll scrollbar-thin max-h-[58dvh]">
           <table className="w-full min-w-[540px] border-collapse text-[12px]">
             <thead>
@@ -179,10 +180,10 @@ export function EstateSummary({ estate, derived, onTab }: Props) {
             </tfoot>
           </table>
         </div>
-      </div>
+      </Reveal>
 
       {/* comparison against previous window */}
-      <div className="surface overflow-hidden">
+      <Reveal className="surface overflow-hidden" delay={80}>
         <header className="flex items-center justify-between gap-3 px-4 pb-3 pt-4">
           <div className="flex items-center gap-2">
             <Table2 className="h-4 w-4 text-jade-300" />
@@ -208,7 +209,7 @@ export function EstateSummary({ estate, derived, onTab }: Props) {
             strong
           />
         </div>
-      </div>
+      </Reveal>
 
       {derived.rows.length === 0 && (
         <EmptyState

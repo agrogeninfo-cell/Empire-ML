@@ -1,6 +1,7 @@
 import { Coins, Info, RotateCcw, Sparkles, Timer, Wallet } from "lucide-react";
 import { NumberField, TextField } from "@/components/ui/Field";
 import { Badge, Row, SectionHead } from "@/components/ui/Metrics";
+import { Reveal } from "@/components/ui/Reveal";
 import { money, num } from "@/lib/calendar";
 import { ESTATE_NOTES, DEFAULT_ESTATE_RATES } from "@/data/defaults";
 import { formulaText } from "@/lib/estate";
@@ -57,7 +58,7 @@ export function EstateSettings({
       />
 
       {/* identity */}
-      <section className="surface p-4">
+      <Reveal as="section" className="surface p-4">
         <div className="flex items-center gap-2">
           <span className="grid h-8 w-8 place-items-center rounded-lg border border-jade-500/25 bg-jade-600/10 text-jade-300">
             <Sparkles className="h-4 w-4" />
@@ -78,10 +79,10 @@ export function EstateSettings({
             placeholder="Labour Invoice • Estate 24–24"
           />
         </div>
-      </section>
+      </Reveal>
 
       {/* rates */}
-      <section className="surface p-4">
+      <Reveal as="section" className="surface p-4" delay={60}>
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <span className="grid h-8 w-8 place-items-center rounded-lg border border-gold-500/25 bg-gold-500/10 text-gold-300">
@@ -123,10 +124,10 @@ export function EstateSettings({
             </div>
           ))}
         </div>
-      </section>
+      </Reveal>
 
       {/* formula */}
-      <section className="surface overflow-hidden">
+      <Reveal as="section" className="surface overflow-hidden" delay={120}>
         <header className="flex items-center gap-2 px-4 pb-3 pt-4">
           <span className="grid h-8 w-8 place-items-center rounded-lg border border-jade-500/25 bg-jade-600/10 text-jade-300">
             <Timer className="h-4 w-4" />
@@ -169,10 +170,10 @@ export function EstateSettings({
             ))}
           </ul>
         </div>
-      </section>
+      </Reveal>
 
       {/* window reference */}
-      <section className="surface overflow-hidden">
+      <Reveal as="section" className="surface overflow-hidden" delay={180}>
         <header className="flex items-center justify-between gap-3 px-4 pb-3 pt-4">
           <div className="flex items-center gap-2">
             <span className="grid h-8 w-8 place-items-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-ink-200">
@@ -188,9 +189,9 @@ export function EstateSettings({
           <Row label="Logged records (all time)" value={String(derived.recordCount)} />
           <Row label="Logged in window" value={String(t.count)} />
         </div>
-      </section>
+      </Reveal>
 
-      <div className="surface-flat p-4">
+      <Reveal className="surface-flat p-4" delay={240}>
         <div className="flex items-start gap-3">
           <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-gold-400" />
           <div className="min-w-0 flex-1">
@@ -205,7 +206,7 @@ export function EstateSettings({
             </button>
           </div>
         </div>
-      </div>
+      </Reveal>
 
       <p className="px-1 text-[10.5px] leading-relaxed text-ink-500">
         Defaults restored:{" "}

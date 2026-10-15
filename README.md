@@ -25,9 +25,10 @@ npm run dev        # http://localhost:5173
 npm run build          # production bundle → dist/
 npm run preview        # serve the production build
 npm run typecheck      # tsc, no emit
-npm run verify         # both suites: 164 calculation + 101 render assertions
-npm run verify:calc    # calculation fidelity against the source artefacts
-npm run verify:render  # mounts the real <App /> in jsdom and drives the UI
+npm run verify           # all three suites: 359 assertions
+npm run verify:calc      # calculation fidelity against the source artefacts
+npm run verify:storage   # vault round-trip, backup fallback, legacy migration
+npm run verify:render    # mounts the real <App /> in jsdom and drives the UI
 ```
 
 The app starts **blank** on purpose. Use **Load demo data** (Settings, or the
@@ -192,7 +193,7 @@ contains **31** dates. `estatePeriodDays()` now counts actual dates and returns
 
 ## Verification
 
-Two suites, both runnable with `npm run verify`.
+Three suites, all runnable with `npm run verify`.
 
 **`tests/verify.ts` — calculation fidelity (164 assertions).** Transcribes the
 original minified functions inline (`legacyDayInfo`, `legacyPayslip`,
@@ -204,20 +205,32 @@ suppression, the seven invoice lines and their derived OT quantities, the 24–2
 boundaries at days 1/12/23/24/25/30/31, CSV headers and row shapes, and the
 extracted defaults.
 
-**`tests/run-render.mjs` — render smoke test (101 assertions).** Mounts the real
+**`tests/run-storage.mjs` — persistence & migration (88 assertions).** The vault
+is the one place a silent failure costs real payroll data, so it is tested
+hostilely: full round-trip, the backup fallback when the main key is deleted,
+migration of the original artefact's own storage keys (whole-document
+`rh_final_data`, scattered `rh_employees`/`rh_attendance`/`deductions`, and the
+legacy backup key), corrupt-JSON recovery, and shape normalisation — numeric
+strings coerced, `null`s zeroed, non-boolean shift marks dropped, employees
+without an id rejected, unknown rate keys not smuggled into state, and an
+invalid period falling back rather than corrupting the calendar.
+
+**`tests/run-render.mjs` — render smoke test (107 assertions).** Mounts the real
 `<App />` in jsdom and drives it the way a user would: load demo data, tap a shift
-cell, walk Cards → Today → Grid, open a payslip and edit a deduction, read all
-seven invoice lines, fire a CSV export and assert the file contents, walk the
-two-step `DELETE` reset guard (including that lowercase `delete` does *not*
-unlock it), switch to the Estate module and walk all five of its tabs, then
+cell and then **undo** it from the top bar, walk Cards → Today → Grid, open a
+payslip and edit a deduction, read all seven invoice lines, fire a CSV export and
+assert the file contents, walk the two-step `DELETE` reset guard (including that
+lowercase `delete` does *not* unlock it), switch to the Estate module and walk all
+five of its tabs, confirm the scroll-reveal behaviour is actually wired up, then
 assert the vault landed in `localStorage` under both keys.
 
 ```
 ✅ 164 assertions passed — calculations match the source artefacts
-✅ 101 render assertions passed — the UI mounts and drives cleanly
+✅  88 persistence assertions passed — the vault round-trips and migrates
+✅ 107 render assertions passed — the UI mounts and drives cleanly
 ```
 
-The render suite has already earned its keep — it caught two defects that
+The render suite has already earned its keep — it caught defects that
 typechecking, the production build and the calculation suite all missed:
 
 - `AttendanceGrid` called `Element.scrollTo` unguarded, which throws outright in
@@ -230,6 +243,14 @@ typechecking, the production build and the calculation suite all missed:
   `Late,In,Out,Grand` instead of the canonical `LateHours,In,Out,Grand Total`.
   Now a regression assertion pins file headers to
   `ESTATE_CSV_FILE_HEADERS` and keeps the shortened display copy separate.
+
+A fourth defect was caught by review rather than by a test: the `Reveal`
+component and its `.scroll-rise` stylesheet — the defining behaviour of
+`millennium-scroll-reveal.html` — had been built and then never imported
+anywhere. They are now wired through the long-scroll surfaces of both modules,
+and the render suite asserts `.scroll-rise` elements exist and fall back to
+visible when `IntersectionObserver` is unavailable, so it cannot quietly become
+dead code again.
 
 ---
 

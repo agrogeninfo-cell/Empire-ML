@@ -9,6 +9,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { Badge, SectionHead } from "@/components/ui/Metrics";
+import { Reveal } from "@/components/ui/Reveal";
 import { cn } from "@/lib/cn";
 import { MONTHS, fileNameSafe, money, num } from "@/lib/calendar";
 import {
@@ -161,7 +162,7 @@ export function EstateExport({ estate, derived, notify }: Props) {
       </div>
 
       {/* actions */}
-      <div className="surface-flat p-3.5">
+      <Reveal className="surface-flat p-3.5">
         <div className="eyebrow mb-2.5">Download</div>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <button
@@ -210,10 +211,10 @@ export function EstateExport({ estate, derived, notify }: Props) {
             </b>
           </span>
         </div>
-      </div>
+      </Reveal>
 
       {/* preview */}
-      <div className="surface overflow-hidden">
+      <Reveal className="surface overflow-hidden" delay={60}>
         <header className="flex items-center justify-between gap-3 px-4 pb-3 pt-4">
           <div>
             <div className="eyebrow-gold">Preview</div>
@@ -257,9 +258,10 @@ export function EstateExport({ estate, derived, notify }: Props) {
             </pre>
           )}
         </div>
-      </div>
+      </Reveal>
 
       {/* printable statement */}
+      <Reveal delay={120}>
       <div className="print-area paper mx-auto w-full max-w-[640px] overflow-hidden rounded-[20px] border border-black/10 shadow-[0_24px_70px_-28px_rgba(0,0,0,0.85)]">
         <div className="border-b-2 border-[#0f3d2e] px-6 pb-4 pt-5">
           <div className="flex items-start justify-between gap-4">
@@ -362,6 +364,7 @@ export function EstateExport({ estate, derived, notify }: Props) {
           </div>
         </div>
       </div>
+      </Reveal>
 
       <p className="px-1 text-[11px] leading-relaxed text-ink-500">
         Printed output shows the statement above only — the app chrome is hidden by the print

@@ -9,8 +9,9 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 0.0.0.0 --port 4173",
     "typecheck": "tsc --noEmit --pretty false",
-    "verify": "node tests/run.mjs && node tests/run-render.mjs",
+    "verify": "node tests/run.mjs && node tests/run-storage.mjs && node tests/run-render.mjs",
     "verify:calc": "node tests/run.mjs",
+    "verify:storage": "node tests/run-storage.mjs",
     "verify:render": "node tests/run-render.mjs"
   },
   "dependencies": {

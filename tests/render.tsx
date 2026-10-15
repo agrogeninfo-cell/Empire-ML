@@ -274,12 +274,27 @@ export async function main() {
   if (cell) {
     const label = cell.getAttribute("aria-label") ?? "";
     await click(cell, `shift cell ${label}`);
-    await settle(60);
+    await settle(90);
+    const marked = cell.getAttribute("aria-pressed") === "true";
     check(
-      cell.getAttribute("aria-pressed") === "true" ||
-        (document.body.textContent ?? "") !== netBefore,
+      marked || (document.body.textContent ?? "") !== netBefore,
       "tapping a shift cell marks it",
     );
+
+    // The toast offers Undo, and the top bar exposes it once history exists.
+    has("Undo", "an undo affordance is offered after a mutation");
+    const undoBtn = Array.from(document.querySelectorAll("button")).find(
+      (b) => (b.getAttribute("title") ?? "") === "Undo the last change",
+    );
+    check(!!undoBtn, "the top-bar Undo control appears once there is history");
+    if (undoBtn) {
+      await click(undoBtn, "top-bar undo");
+      await settle(120);
+      check(
+        cell.getAttribute("aria-pressed") === "false" || !marked,
+        "Undo reverts the shift mark",
+      );
+    }
   } else {
     failures.push("no OFF shift cell found to tap");
   }
@@ -398,6 +413,17 @@ export async function main() {
   has("Auto backup weekly", "weekly auto-backup is toggleable");
   has("Delete all data & reset", "destructive reset is available");
 
+  // Scroll-reveal is the defining behaviour of millennium-scroll-reveal.html.
+  // It was built once and left unwired, so pin it down: panels must carry the
+  // `.scroll-rise` class, and with no IntersectionObserver (jsdom) they must
+  // fall back to immediately visible rather than staying at opacity 0.
+  const risen = document.querySelectorAll(".scroll-rise");
+  check(risen.length >= 4, `settings panels use scroll-reveal (${risen.length} found)`);
+  check(
+    Array.from(risen).every((el) => el.classList.contains("visible")),
+    "scroll-reveal falls back to visible when IntersectionObserver is absent",
+  );
+
   section("11 · Two-step destructive reset");
   await clickText("Delete all data & reset");
   await settle(SETTLE_SWAP);
@@ -508,6 +534,10 @@ export async function main() {
   has("Late deduction", "late deduction is editable");
   has("Stored, not used by the day formula", "unused night rates are honestly flagged");
   has("Formula", "formula reference is shown");
+  check(
+    document.querySelectorAll(".scroll-rise").length >= 4,
+    "estate settings panels use scroll-reveal too",
+  );
 
   section("16 · Persistence");
   const raw = window.localStorage.getItem("empire_ml:data");

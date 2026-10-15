@@ -16,6 +16,7 @@ import {
 import { Confirm } from "@/components/ui/Confirm";
 import { NumberField, Switch, TextField } from "@/components/ui/Field";
 import { Badge, EmptyState, Row } from "@/components/ui/Metrics";
+import { Reveal } from "@/components/ui/Reveal";
 import { cn } from "@/lib/cn";
 import { MONTHS_SHORT, clockTime, money, parseKey } from "@/lib/calendar";
 import type { StorageMeta } from "@/lib/storage";
@@ -538,7 +539,7 @@ function Panel({
         ? "text-danger-soft border-danger/25 bg-danger/10"
         : "text-gold-300 border-gold-500/25 bg-gold-500/10";
   return (
-    <section className="surface overflow-hidden">
+    <Reveal as="section" className="surface overflow-hidden">
       <header className="flex items-start gap-3 px-4 pb-3 pt-4">
         <span className={cn("grid h-9 w-9 shrink-0 place-items-center rounded-xl border", accent)}>
           {icon}
@@ -550,7 +551,7 @@ function Panel({
         {action && <div className="shrink-0">{action}</div>}
       </header>
       <div className="border-t border-white/[0.06] px-4 py-4">{children}</div>
-    </section>
+    </Reveal>
   );
 }
 

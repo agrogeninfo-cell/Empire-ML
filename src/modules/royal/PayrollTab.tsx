@@ -11,6 +11,7 @@ import {
 import { Segmented } from "@/components/ui/Segmented";
 import { Stepper } from "@/components/ui/Field";
 import { Badge, MetricCard, ProgressRing, Row } from "@/components/ui/Metrics";
+import { Reveal } from "@/components/ui/Reveal";
 import { cn } from "@/lib/cn";
 import { initials, money } from "@/lib/calendar";
 import type { PayslipRow, RangeMode, WeekId, WeekSlice } from "@/lib/types";
@@ -205,6 +206,7 @@ export function PayrollTab({
       </div>
 
       {/* ── rate reference ─────────────────────────────────────────── */}
+      <Reveal>
       <details className="group surface-flat overflow-hidden">
         <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-4 py-3 text-[12.5px] font-semibold text-ink-200 transition hover:text-gold-200">
           <span className="flex items-center gap-2">
@@ -226,9 +228,10 @@ export function PayrollTab({
           />
         </div>
       </details>
+      </Reveal>
 
       {/* ── toolbar ────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between gap-2">
+      <Reveal className="flex items-center justify-between gap-2" delay={60}>
         <div className="eyebrow">Payslips · {sorted.length}</div>
         <div className="flex gap-1">
           {(["net", "days", "name"] as const).map((s) => (
@@ -247,7 +250,7 @@ export function PayrollTab({
             </button>
           ))}
         </div>
-      </div>
+      </Reveal>
 
       {/* ── payslip rows ───────────────────────────────────────────── */}
       <div className="space-y-2.5">

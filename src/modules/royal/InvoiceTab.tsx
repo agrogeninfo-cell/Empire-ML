@@ -3,6 +3,7 @@ import { Camera, FileDown, FileSpreadsheet, Printer, Sparkles, Trophy } from "lu
 import { Segmented } from "@/components/ui/Segmented";
 import { NumberField, TextField } from "@/components/ui/Field";
 import { Row } from "@/components/ui/Metrics";
+import { Reveal } from "@/components/ui/Reveal";
 import { cn } from "@/lib/cn";
 import { MONTHS, money, rupeesDot } from "@/lib/calendar";
 import { invoiceLinesFor } from "@/lib/payroll";
@@ -195,7 +196,7 @@ export function InvoiceTab({
       />
 
       {/* ── editable document meta ─────────────────────────────────── */}
-      <div className="surface-flat space-y-3 p-3.5">
+      <Reveal className="surface-flat space-y-3 p-3.5">
         <div className="eyebrow">Document details</div>
         {doc === "invoice" ? (
           <>
@@ -284,9 +285,10 @@ export function InvoiceTab({
             <Row label="Total bonus pool" value={rupeesDot(bonusPool)} tone="jade" strong />
           </div>
         )}
-      </div>
+      </Reveal>
 
       {/* ── paper ──────────────────────────────────────────────────── */}
+      <Reveal delay={60}>
       <div
         ref={paperRef}
         className="print-area paper mx-auto w-full max-w-[640px] overflow-hidden rounded-[20px] border border-black/10 shadow-[0_24px_70px_-28px_rgba(0,0,0,0.85)]"
@@ -312,9 +314,10 @@ export function InvoiceTab({
           />
         )}
       </div>
+      </Reveal>
 
       {/* ── export bar ─────────────────────────────────────────────── */}
-      <div className="surface-flat p-3">
+      <Reveal className="surface-flat p-3" delay={120}>
         <div className="eyebrow mb-2.5">Export</div>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <ExportButton icon={<FileDown className="h-4 w-4" />} label="PDF" busy={busy === "pdf"} onClick={exportPdf} primary />
@@ -334,7 +337,7 @@ export function InvoiceTab({
         >
           Download as CSV instead
         </button>
-      </div>
+      </Reveal>
     </div>
   );
 }
