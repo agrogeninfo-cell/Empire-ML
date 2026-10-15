@@ -25,10 +25,11 @@ npm run dev        # http://localhost:5173
 npm run build          # production bundle → dist/
 npm run preview        # serve the production build
 npm run typecheck      # tsc, no emit
-npm run verify           # all three suites: 378 assertions
+npm run verify           # all four suites: 420 assertions
 npm run verify:calc      # calculation fidelity against the source artefacts
 npm run verify:storage   # vault round-trip, backup fallback, legacy migration
 npm run verify:render    # mounts the real <App /> in jsdom and drives the UI
+npm run verify:css       # guard: html2canvas can still rasterise every document
 ```
 
 The app starts **blank** on purpose. Use **Load demo data** (Settings, or the
@@ -193,7 +194,7 @@ contains **31** dates. `estatePeriodDays()` now counts actual dates and returns
 
 ## Verification
 
-Three suites, all runnable with `npm run verify`.
+Four suites, all runnable with `npm run verify`.
 
 **`tests/verify.ts` — calculation fidelity (164 assertions).** Transcribes the
 original minified functions inline (`legacyDayInfo`, `legacyPayslip`,
@@ -227,10 +228,20 @@ same date key**, add a new employee and confirm the roster grows, confirm the
 scroll-reveal behaviour is actually wired up, then assert the vault landed in
 `localStorage` under both keys.
 
+**`tests/run-css.mjs` — export-compatibility guard (42 assertions).** PDF and PNG
+export rasterise live DOM through `html2canvas` 1.4.1, whose colour parser throws
+on `oklch()`, `oklab()`, `lab()`, `lch()`, `hwb()` and `color-mix()`. Tailwind v4
+emits `oklch()` for its entire default palette, so a routine major-version bump
+would silently break every document export. This project is pinned to Tailwind v3
+for exactly that reason; the guard asserts the pin holds, scans both the
+hand-written CSS and the compiled bundle, and checks that each printable
+document still uses explicit hex.
+
 ```
 ✅ 164 assertions passed — calculations match the source artefacts
 ✅  88 persistence assertions passed — the vault round-trips and migrates
 ✅ 126 render assertions passed — the UI mounts and drives cleanly
+✅  42 export-compatibility assertions passed
 ```
 
 The render suite has already earned its keep — it caught defects that
