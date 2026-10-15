@@ -22,15 +22,18 @@ npm run dev        # http://localhost:5173
 ```
 
 ```bash
-npm run build      # production bundle → dist/
-npm run preview    # serve the production build
-npm run typecheck  # tsc, no emit
-npm run verify     # 158-assertion calculation-fidelity harness
+npm run build          # production bundle → dist/
+npm run preview        # serve the production build
+npm run typecheck      # tsc, no emit
+npm run verify         # both suites: 164 calculation + 101 render assertions
+npm run verify:calc    # calculation fidelity against the source artefacts
+npm run verify:render  # mounts the real <App /> in jsdom and drives the UI
 ```
 
 The app starts **blank** on purpose. Use **Load demo data** (Settings, or the
-welcome sheet) to drop in the six-person roster and a populated 24 Aug → 23 Sep
-estate window and see every calculation light up.
+welcome sheet) to drop in the six-person roster with a full month of attendance
+and an estate window seeded across whichever 24–24 period contains today, so
+every calculation lights up immediately.
 
 ---
 
@@ -189,18 +192,44 @@ contains **31** dates. `estatePeriodDays()` now counts actual dates and returns
 
 ## Verification
 
-`npm run verify` runs `tests/verify.ts`, which transcribes the original minified
-functions inline (`legacyDayInfo`, `legacyPayslip`, `legacyInvoice`,
-`legacyPeriod`, `legacyDayAmount`, `legacyDelta`) and asserts the rebuilt engine
-agrees with them — across all of 2026 for day classification, and on hand-built
-attendance fixtures that exercise the bonus threshold, `D+N` double-counting,
-Poya-at-the-top-rate, female night allowance, week-range bonus suppression, the
-seven invoice lines and their derived OT quantities, the 24–24 boundaries at days
-1/12/23/24/25/30/31, CSV headers and row shapes, and the extracted defaults.
+Two suites, both runnable with `npm run verify`.
+
+**`tests/verify.ts` — calculation fidelity (164 assertions).** Transcribes the
+original minified functions inline (`legacyDayInfo`, `legacyPayslip`,
+`legacyInvoice`, `legacyPeriod`, `legacyDayAmount`, `legacyDelta`) and asserts the
+rebuilt engines agree with them: across all of 2026 for day classification, and on
+hand-built attendance fixtures covering the bonus threshold, `D+N`
+double-counting, Poya-at-the-top-rate, female night allowance, week-range bonus
+suppression, the seven invoice lines and their derived OT quantities, the 24–24
+boundaries at days 1/12/23/24/25/30/31, CSV headers and row shapes, and the
+extracted defaults.
+
+**`tests/run-render.mjs` — render smoke test (101 assertions).** Mounts the real
+`<App />` in jsdom and drives it the way a user would: load demo data, tap a shift
+cell, walk Cards → Today → Grid, open a payslip and edit a deduction, read all
+seven invoice lines, fire a CSV export and assert the file contents, walk the
+two-step `DELETE` reset guard (including that lowercase `delete` does *not*
+unlock it), switch to the Estate module and walk all five of its tabs, then
+assert the vault landed in `localStorage` under both keys.
 
 ```
-✅ 158 assertions passed — calculations match the source artefacts
+✅ 164 assertions passed — calculations match the source artefacts
+✅ 101 render assertions passed — the UI mounts and drives cleanly
 ```
+
+The render suite has already earned its keep — it caught two defects that
+typechecking, the production build and the calculation suite all missed:
+
+- `AttendanceGrid` called `Element.scrollTo` unguarded, which throws outright in
+  environments that lack it. Now feature-detected with a `scrollLeft` fallback.
+- `AnimatePresence mode="wait"` gated the incoming workspace on the outgoing one
+  finishing its exit, leaving a ~300 ms blank shell on every module switch. Both
+  that and the equivalent gate on the reset dialog's second step were replaced
+  with keyed enter-only transitions — snappier, and no blank gap.
+- Estate CSV downloads were built from the *display* header copy, shipping
+  `Late,In,Out,Grand` instead of the canonical `LateHours,In,Out,Grand Total`.
+  Now a regression assertion pins file headers to
+  `ESTATE_CSV_FILE_HEADERS` and keeps the shortened display copy separate.
 
 ---
 

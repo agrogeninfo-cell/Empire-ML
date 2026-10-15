@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { motion } from "framer-motion";
 import { RotateCcw, TriangleAlert } from "lucide-react";
 import { StoreProvider, useStore } from "@/store/AppStore";
 import { ToastProvider, useToast } from "@/components/ui/Toast";
@@ -7,7 +7,6 @@ import { TopBar } from "@/components/layout/Nav";
 import { BrandMark, ModuleSwitch, SaveDot } from "@/components/layout/Brand";
 import { RoyalModule } from "@/modules/royal/RoyalModule";
 import { EstateModule } from "@/modules/estate/EstateModule";
-import { cn } from "@/lib/cn";
 
 /* ═══════════════════════════════════════════════════════════════════════
  * App shell — ambient backdrop, top bar, module switcher, active module
@@ -87,18 +86,17 @@ function Shell() {
 
       {!store.storageOk && <StorageWarning />}
 
-      <AnimatePresence mode="wait" initial={false}>
-        <motion.div
-          key={store.module}
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: booted ? 1 : 0, y: 0 }}
-          exit={{ opacity: 0, y: -8 }}
-          transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-          className={cn("pb-nav", store.module === "royal" ? "" : "")}
-        >
-          {isRoyal ? <RoyalModule /> : <EstateModule />}
-        </motion.div>
-      </AnimatePresence>
+      {/* Keyed remount: the outgoing workspace leaves immediately and the
+          incoming one fades in, so a switch never shows an empty shell. */}
+      <motion.div
+        key={store.module}
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: booted ? 1 : 0, y: 0 }}
+        transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+        className="pb-nav"
+      >
+        {isRoyal ? <RoyalModule /> : <EstateModule />}
+      </motion.div>
 
       <footer
         className="no-print mx-auto max-w-[1180px] px-4 pb-6 pt-2 md:px-6 lg:px-8"

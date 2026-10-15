@@ -166,6 +166,29 @@ export function cardFills(t: PeriodTotals) {
 
 export type EstateCsvKind = "male" | "female" | "combined";
 
+/**
+ * Headers written into exported files — the canonical shape from the source
+ * artefact's `T()` exporter. Kept separate from `ESTATE_CSV_HEADERS`, which is
+ * the *shortened* copy that artefact only ever displayed on its export cards.
+ */
+export const ESTATE_CSV_FILE_HEADERS: Record<EstateCsvKind, string[]> = {
+  male: ["Year", "Month", "Day", "Male Shifts", "Male OT", "Male Amount"],
+  female: ["Year", "Month", "Day", "Female Shifts", "Female OT", "Female Amount"],
+  combined: [
+    "Year",
+    "Month",
+    "Day",
+    "Male",
+    "Female",
+    "MaleOT",
+    "FemaleOT",
+    "LateHours",
+    "In",
+    "Out",
+    "Grand Total",
+  ],
+};
+
 export function estateCsv(
   rows: EstateDayRecord[],
   rates: EstateRates,
@@ -173,20 +196,19 @@ export function estateCsv(
 ): string {
   const lines: string[] = [];
 
+  lines.push(ESTATE_CSV_FILE_HEADERS[kind].join(","));
+
   if (kind === "male") {
-    lines.push("Year,Month,Day,Male Shifts,Male OT,Male Amount");
     for (const r of rows) {
       const [y, m, d] = r.date.split("-");
       lines.push(`${y},${m},${d},${r.maleCount},${r.maleOt},${maleAmount(r, rates)}`);
     }
   } else if (kind === "female") {
-    lines.push("Year,Month,Day,Female Shifts,Female OT,Female Amount");
     for (const r of rows) {
       const [y, m, d] = r.date.split("-");
       lines.push(`${y},${m},${d},${r.femaleCount},${r.femaleOt},${femaleAmount(r, rates)}`);
     }
   } else {
-    lines.push("Year,Month,Day,Male,Female,MaleOT,FemaleOT,LateHours,In,Out,Grand Total");
     for (const r of rows) {
       const [y, m, d] = r.date.split("-");
       lines.push(
@@ -198,6 +220,10 @@ export function estateCsv(
   return lines.join("\n");
 }
 
+/**
+ * Shortened header copy for on-screen export cards, exactly as the source
+ * artefact displayed it. Files use `ESTATE_CSV_FILE_HEADERS` instead.
+ */
 export const ESTATE_CSV_HEADERS: Record<EstateCsvKind, string> = {
   male: "Year,Month,Day,Male Shifts,Male OT,Male Amount",
   female: "Year,Month,Day,Female Shifts,Female OT,Female Amount",

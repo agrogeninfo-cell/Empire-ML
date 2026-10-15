@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { motion } from "framer-motion";
 import { cn } from "@/lib/cn";
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -235,35 +235,6 @@ export function TopBar({
         {right && <div className="flex shrink-0 items-center gap-2">{right}</div>}
       </div>
     </header>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════════════════
- * Page container with a keyed cross-fade between tabs
- * ═════════════════════════════════════════════════════════════════════ */
-
-export function Page({
-  id,
-  children,
-  className,
-}: {
-  id: string;
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <AnimatePresence mode="wait" initial={false}>
-      <motion.main
-        key={id}
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -6 }}
-        transition={{ duration: 0.26, ease: [0.22, 1, 0.36, 1] }}
-        className={cn("mx-auto w-full max-w-[1180px] px-4 md:px-6 lg:px-8", className)}
-      >
-        {children}
-      </motion.main>
-    </AnimatePresence>
   );
 }
 

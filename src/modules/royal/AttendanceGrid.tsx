@@ -37,11 +37,22 @@ export const AttendanceGrid = memo(function AttendanceGrid({
 
   // Jump the frozen header to "today" when the month changes.
   useEffect(() => {
-    if (!todayKey || !scrollRef.current) return;
+    const el = scrollRef.current;
+    if (!todayKey || !el) return;
     const idx = days.findIndex((d) => d.key === todayKey);
     if (idx < 0) return;
     const target = Math.max(0, idx * 42 - 160);
-    scrollRef.current.scrollTo({ left: target, behavior: "smooth" });
+    // `Element.scrollTo` is absent in some embedded webviews and in jsdom —
+    // scrolling to today is a nicety, never worth crashing the grid over.
+    if (typeof el.scrollTo === "function") {
+      try {
+        el.scrollTo({ left: target, behavior: "smooth" });
+      } catch {
+        el.scrollLeft = target;
+      }
+    } else {
+      el.scrollLeft = target;
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [todayKey]);
 

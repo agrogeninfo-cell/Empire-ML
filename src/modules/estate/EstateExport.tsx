@@ -12,6 +12,7 @@ import { Badge, SectionHead } from "@/components/ui/Metrics";
 import { cn } from "@/lib/cn";
 import { MONTHS, fileNameSafe, money, num } from "@/lib/calendar";
 import {
+  ESTATE_CSV_FILE_HEADERS,
   ESTATE_CSV_HEADERS,
   dayAmount,
   estateCsv,
@@ -68,7 +69,7 @@ export function EstateExport({ estate, derived, notify }: Props) {
   };
 
   const sheetFor = (kind: EstateCsvKind): (string | number)[][] => {
-    const head = ESTATE_CSV_HEADERS[kind].split(",");
+    const head = ESTATE_CSV_FILE_HEADERS[kind];
     const body = derived.rows.map((r) => {
       const [y, m, d] = r.date.split("-");
       if (kind === "male")

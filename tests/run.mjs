@@ -19,5 +19,9 @@ await build({
   external: ["react", "react-dom", "framer-motion", "lucide-react", "xlsx", "jspdf", "html2canvas"],
 });
 
-await import(pathToFileURL(outfile).href);
-fs.rmSync(outfile, { force: true });
+try {
+  await import(pathToFileURL(outfile).href);
+} finally {
+  fs.rmSync(outfile, { force: true });
+}
+process.exit(process.exitCode ?? 0);

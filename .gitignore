@@ -13,4 +13,4 @@ yarn-error.log*
 !.vscode/extensions.json
 
 # transient esbuild output from `npm run verify`
-tests/.verify.bundle.mjs
+tests/.*.bundle.mjs

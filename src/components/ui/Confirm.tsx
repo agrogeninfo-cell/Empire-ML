@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { motion } from "framer-motion";
 import { AlertTriangle } from "lucide-react";
 import { Sheet } from "./Sheet";
 import { cn } from "@/lib/cn";
@@ -70,13 +70,11 @@ export function Confirm({
       )}
       bodyClassName="px-5 pt-5"
     >
-      <AnimatePresence mode="wait" initial={false}>
         {step === 1 ? (
           <motion.div
             key="s1"
             initial={{ opacity: 0, x: -14 }}
             animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 14 }}
             transition={{ duration: 0.2 }}
           >
             <div
@@ -113,7 +111,6 @@ export function Confirm({
             key="s2"
             initial={{ opacity: 0, x: 14 }}
             animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -14 }}
             transition={{ duration: 0.2 }}
           >
             <h3 className="text-[16px] font-bold text-ink-50">
@@ -171,7 +168,6 @@ export function Confirm({
             </div>
           </motion.div>
         )}
-      </AnimatePresence>
     </Sheet>
   );
 }

@@ -34,6 +34,8 @@ import {
   DEFAULT_RANGE,
 } from "../src/lib/payroll";
 import {
+  ESTATE_CSV_FILE_HEADERS,
+  ESTATE_CSV_HEADERS,
   cardFills,
   dayAmount,
   deltaPercent,
@@ -579,6 +581,31 @@ function femaleCsvHeader(rs: EstateDayRecord[]) {
   return estateCsv(rs, DEFAULT_ESTATE_RATES, "female").split("\n")[0];
 }
 
+// Regression guard: the source artefact kept a long header for the file it
+// WROTE and a shortened one it only DISPLAYED. Downloads must use the long
+// (canonical) form — an earlier build wired the display copy into exports and
+// silently shipped "Late,In,Out,Grand" instead.
+for (const kind of ["male", "female", "combined"] as const) {
+  eq(
+    estateCsv(rows, DEFAULT_ESTATE_RATES, kind).split("\n")[0],
+    ESTATE_CSV_FILE_HEADERS[kind].join(","),
+    `${kind} export writes the canonical file header`,
+  );
+}
+eq(
+  ESTATE_CSV_FILE_HEADERS.combined.slice(-4),
+  ["LateHours", "In", "Out", "Grand Total"],
+  "canonical combined header keeps LateHours and Grand Total",
+);
+truthy(
+  ESTATE_CSV_HEADERS.combined.endsWith("Late,In,Out,Grand"),
+  "display header stays the shortened artefact copy",
+);
+truthy(
+  ESTATE_CSV_HEADERS.combined !== ESTATE_CSV_FILE_HEADERS.combined.join(","),
+  "display and file headers are deliberately different",
+);
+
 section("Demo seed is deterministic");
 const demoPeriod = { start: new Date(2025, 7, 24), end: new Date(2025, 8, 23) };
 demoPeriod.start.setHours(0, 0, 0, 0);
@@ -656,4 +683,5 @@ if (failures.length === 0) {
   failures.forEach((f, i) => console.log(`   ${i + 1}. ${f}`));
 }
 console.log(`${"═".repeat(58)}\n`);
-process.exit(failures.length === 0 ? 0 : 1);
+// The runner deletes the bundle and exits — do not process.exit() here.
+process.exitCode = failures.length === 0 ? 0 : 1;
