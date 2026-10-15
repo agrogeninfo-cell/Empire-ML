@@ -91,7 +91,33 @@ export function EstateExport({ estate, derived, notify }: Props) {
         dayAmount(r, estate.rates),
       ];
     });
-    return [head, ...body, [], ["TOTAL", "", "", num(derived.totals.m), num(derived.totals.f), num(derived.totals.mOt + derived.totals.fOt), num(derived.totals.late), "", "", money(derived.totals.grand)]];
+
+    // The footer must match each shape's arity, or the totals slide sideways
+    // under the wrong headings.
+    const t = derived.totals;
+    const maleTotal = derived.rows.reduce((s, r) => s + maleAmount(r, estate.rates), 0);
+    const femaleTotal = derived.rows.reduce((s, r) => s + femaleAmount(r, estate.rates), 0);
+
+    const total: (string | number)[] =
+      kind === "male"
+        ? ["TOTAL", "", "", num(t.m), num(t.mOt), money(maleTotal)]
+        : kind === "female"
+          ? ["TOTAL", "", "", num(t.f), num(t.fOt), money(femaleTotal)]
+          : [
+              "TOTAL",
+              "",
+              "",
+              num(t.m),
+              num(t.f),
+              num(t.mOt),
+              num(t.fOt),
+              num(t.late),
+              "",
+              "",
+              money(t.grand),
+            ];
+
+    return [head, ...body, [], total];
   };
 
   const copyPreview = async () => {

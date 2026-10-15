@@ -25,7 +25,7 @@ npm run dev        # http://localhost:5173
 npm run build          # production bundle → dist/
 npm run preview        # serve the production build
 npm run typecheck      # tsc, no emit
-npm run verify           # all three suites: 359 assertions
+npm run verify           # all three suites: 364 assertions
 npm run verify:calc      # calculation fidelity against the source artefacts
 npm run verify:storage   # vault round-trip, backup fallback, legacy migration
 npm run verify:render    # mounts the real <App /> in jsdom and drives the UI
@@ -215,7 +215,7 @@ strings coerced, `null`s zeroed, non-boolean shift marks dropped, employees
 without an id rejected, unknown rate keys not smuggled into state, and an
 invalid period falling back rather than corrupting the calendar.
 
-**`tests/run-render.mjs` — render smoke test (107 assertions).** Mounts the real
+**`tests/run-render.mjs` — render smoke test (112 assertions).** Mounts the real
 `<App />` in jsdom and drives it the way a user would: load demo data, tap a shift
 cell and then **undo** it from the top bar, walk Cards → Today → Grid, open a
 payslip and edit a deduction, read all seven invoice lines, fire a CSV export and
@@ -227,7 +227,7 @@ assert the vault landed in `localStorage` under both keys.
 ```
 ✅ 164 assertions passed — calculations match the source artefacts
 ✅  88 persistence assertions passed — the vault round-trips and migrates
-✅ 107 render assertions passed — the UI mounts and drives cleanly
+✅ 112 render assertions passed — the UI mounts and drives cleanly
 ```
 
 The render suite has already earned its keep — it caught defects that
@@ -243,6 +243,12 @@ typechecking, the production build and the calculation suite all missed:
   `Late,In,Out,Grand` instead of the canonical `LateHours,In,Out,Grand Total`.
   Now a regression assertion pins file headers to
   `ESTATE_CSV_FILE_HEADERS` and keeps the shortened display copy separate.
+- The appended `TOTAL` footer row in an estate CSV carried 10 cells against the
+  11-column combined header, so the grand total slid sideways into the `Out`
+  column — and for the male/female shapes it appended four stray columns filled
+  with combined totals. The footer is now built per shape, and the suite asserts
+  every row matches the header arity and the grand total lands in the final
+  column.
 
 A fourth defect was caught by review rather than by a test: the `Reveal`
 component and its `.scroll-rise` stylesheet — the defining behaviour of

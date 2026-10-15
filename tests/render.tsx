@@ -524,6 +524,33 @@ export async function main() {
       "CSV rows use the Year,Month,Day comma format",
     );
     check(grabName().includes("millennium"), `filename is namespaced (got ${grabName()})`);
+
+    // Regression: the appended TOTAL row once carried 10 cells against an
+    // 11-column header, so the grand total slid under "Out". Assert every row
+    // matches the header arity and the total lands in the last column.
+    const cols = (line: string) => (line.match(/"/g)?.length ?? 0) / 2;
+    const headerCols = cols(lines[0]);
+    const nonEmpty = lines.filter((l) => l.trim() !== "");
+    const ragged = nonEmpty.filter((l) => cols(l) !== headerCols);
+    check(
+      ragged.length === 0,
+      `every CSV row has ${headerCols} columns (ragged: ${ragged.length})`,
+    );
+    const totalRow = nonEmpty[nonEmpty.length - 1] ?? "";
+    check(totalRow.startsWith('"TOTAL"'), "the footer row is the TOTAL row");
+    const totalCells = totalRow.split('","').map((c) => c.replace(/"/g, ""));
+    check(
+      totalCells.length === headerCols,
+      `TOTAL row has one cell per column (got ${totalCells.length})`,
+    );
+    check(
+      /^-?[\d,]+(\.\d+)?$/.test(totalCells[totalCells.length - 1] ?? ""),
+      `the grand total sits in the final "Grand Total" column (got "${totalCells[totalCells.length - 1]}")`,
+    );
+    check(
+      (totalCells[8] ?? "") === "" && (totalCells[9] ?? "") === "",
+      "In/Out stay blank on the TOTAL row",
+    );
   }
 
   section("15 · Estate rates");
