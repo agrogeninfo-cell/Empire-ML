@@ -9,10 +9,14 @@
  * jsdom globals are installed by tests/run-render.mjs BEFORE this module is
  * imported, so nothing here may touch `document` at module scope.
  */
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { StrictMode } from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import App from "../src/App";
+import { MONTHS } from "../src/lib/calendar";
 
 /* ───────────────────────── tiny harness ───────────────────────── */
 
@@ -206,6 +210,88 @@ async function clickTab(text: string) {
     }
   }
   return clickText(text);
+}
+
+/* ───────────────────── dialog, chip and select helpers ───────────────────── */
+
+function dialog(): HTMLElement | null {
+  return document.querySelector<HTMLElement>('[role="dialog"]');
+}
+
+/** Icon-only dialog controls are reachable by aria-label. */
+async function clickDialogAria(label: string) {
+  const btn = dialog()?.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`) ?? null;
+  return click(btn, `dialog control "${label}"`);
+}
+
+/** Find a <select> by its visible label, scoped to the open dialog. */
+function selectInDialog(label: string): HTMLSelectElement | null {
+  const scope = dialog();
+  if (!scope) return null;
+  for (const l of Array.from(scope.querySelectorAll("label"))) {
+    if ((l.textContent ?? "").trim().toLowerCase() !== label.toLowerCase()) continue;
+    const forId = l.getAttribute("for");
+    const el = forId ? document.getElementById(forId) : l.parentElement?.querySelector("select");
+    if (el instanceof HTMLSelectElement) return el;
+  }
+  return null;
+}
+
+/** React-controlled <select>: native setter + change event. */
+async function chooseOption(sel: HTMLSelectElement, value: string | number) {
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(
+      window.HTMLSelectElement.prototype,
+      "value",
+    )?.set;
+    setter?.call(sel, String(value));
+    sel.dispatchEvent(new Event("change", { bubbles: true }));
+    await tick(30);
+  });
+}
+
+/**
+ * The roster's filter chips.
+ *
+ * Scoped to the "Filter staff" group on purpose: an unscoped text search for
+ * "Bonus" matches the module switcher, whose subtitle reads
+ * "Payroll · Bonus · Invoice".
+ */
+function chip(label: string): HTMLButtonElement | null {
+  const want = label.toLowerCase();
+  const row = document.querySelector<HTMLElement>('[aria-label="Filter staff"]');
+  return (
+    Array.from(row?.querySelectorAll<HTMLButtonElement>("button") ?? []).find((b) =>
+      (b.textContent ?? "").toLowerCase().includes(want),
+    ) ?? null
+  );
+}
+
+async function clickChip(label: string) {
+  return click(chip(label), `filter chip "${label}"`);
+}
+
+/** The count badge inside a chip ("♀ Female" + <span class="tnum">3</span>). */
+function chipCount(label: string): number {
+  return Number(chip(label)?.querySelector(".tnum")?.textContent ?? "-1");
+}
+
+/** Every staff card exposes a Select/Deselect control carrying the name. */
+function visibleStaff(): string[] {
+  return Array.from(
+    document.querySelectorAll<HTMLElement>(
+      'button[aria-label^="Select "], button[aria-label^="Deselect "]',
+    ),
+  ).map((b) => (b.getAttribute("aria-label") ?? "").replace(/^(Deselect|Select) /, ""));
+}
+
+/** Hand a File to the hidden <input type="file"> and fire change. */
+async function handFile(input: HTMLInputElement, file: File) {
+  Object.defineProperty(input, "files", { value: [file], configurable: true });
+  await act(async () => {
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    await tick(60);
+  });
 }
 
 /* ───────────────────────── export capture ───────────────────────── */
@@ -710,6 +796,423 @@ export async function main() {
       "the new employee is in the vault",
     );
   }
+
+  section("18 · Period sheet");
+  // The period bar is the only button that reports shifts and days together.
+  const periodBar = Array.from(document.querySelectorAll("button")).find((b) => {
+    const t = b.textContent ?? "";
+    return /shifts ·/.test(t) && /\d+ days/.test(t);
+  });
+  check(!!periodBar, "the period bar is a button that summarises the month");
+  const barShifts = () => {
+    const m = (periodBar?.textContent ?? "").match(/(\d+) shifts · (\d+) records/);
+    return m ? { shifts: Number(m[1]), records: Number(m[2]) } : { shifts: -1, records: -1 };
+  };
+  const barMonth = () => (periodBar?.querySelector(".display")?.textContent ?? "").trim();
+
+  const now = new Date();
+  const thisMonth = MONTHS[now.getMonth()];
+  const thisMonthLabel = `${thisMonth} ${now.getFullYear()}`;
+  const thisMonthDays = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  check(barMonth() === thisMonthLabel, `the bar opens on ${thisMonthLabel} (got "${barMonth()}")`);
+  const shiftsThisMonth = barShifts().shifts;
+  check(shiftsThisMonth > 0, `the demo month is populated (${shiftsThisMonth} shifts)`);
+
+  await click(periodBar ?? null, "period bar");
+  await settle(SETTLE_SWAP);
+  has("Select Period", "the period sheet opens");
+  has("Attendance, payroll and the client invoice all follow this month", "the sheet explains what the period drives");
+  has("Day map", "the sheet previews the month day by day");
+  has("weekdays", "the day map counts weekdays");
+  has("Saturdays", "the day map counts Saturdays");
+  has("Sundays", "the day map counts Sundays");
+  has("Poya", "the day map counts Poya days");
+
+  const monthHeading = () => {
+    const d = dialog();
+    const el = d
+      ? Array.from(d.querySelectorAll<HTMLElement>(".display")).find((n) =>
+          (MONTHS as readonly string[]).includes((n.textContent ?? "").trim()),
+        )
+      : null;
+    return (el?.textContent ?? "").trim();
+  };
+  const sheetStamp = () => {
+    const m = (dialog()?.textContent ?? "").match(/(\d{4}) · (\d+) days/);
+    return m ? { y: Number(m[1]), days: Number(m[2]) } : { y: 0, days: 0 };
+  };
+  const dayCells = () => dialog()?.querySelectorAll("div[title]").length ?? 0;
+
+  check(monthHeading() === thisMonth, `the sheet opens on the current month (${monthHeading()})`);
+  eqNum(sheetStamp().days, thisMonthDays, `the sheet reports ${thisMonthDays} days for this month`);
+  eqNum(dayCells(), thisMonthDays, "the day map draws exactly one cell per day");
+
+  await clickDialogAria("Previous month");
+  await settle(140);
+  const lastMonth = MONTHS[(now.getMonth() + 11) % 12];
+  check(monthHeading() === lastMonth, `Previous month lands on ${lastMonth} (got ${monthHeading()})`);
+  const lastMonthDays = new Date(now.getFullYear(), now.getMonth(), 0).getDate();
+  eqNum(sheetStamp().days, lastMonthDays, `${lastMonth} is ${lastMonthDays} days long`);
+  eqNum(dayCells(), lastMonthDays, "the day map redraws for the shorter month");
+
+  await clickDialogAria("Next month");
+  await settle(140);
+  check(monthHeading() === thisMonth, "Next month walks back to where we started");
+
+  const monthSel = selectInDialog("Month");
+  const yearSel = selectInDialog("Year");
+  check(!!monthSel && !!yearSel, "the sheet exposes month and year pickers");
+  if (monthSel && yearSel) {
+    await chooseOption(monthSel, 1); // February
+    await settle(140);
+    check(monthHeading() === "February", "the month picker drives the heading");
+    await chooseOption(yearSel, 2028);
+    await settle(140);
+    eqNum(sheetStamp().days, 29, "February 2028 is a leap year — 29 days");
+    eqNum(dayCells(), 29, "the day map draws 29 cells for a leap February");
+    await chooseOption(yearSel, 2027);
+    await settle(140);
+    eqNum(sheetStamp().days, 28, "February 2027 is 28 days");
+
+    await clickInDialog(`Jump to current month (${thisMonth} ${now.getFullYear()})`);
+    await settle(160);
+    check(monthHeading() === thisMonth, "Jump to current month returns to today's month");
+    eqNum(sheetStamp().days, thisMonthDays, "and to today's day count");
+
+    // Walk back one month and commit it — every surface must follow.
+    await clickDialogAria("Previous month");
+    await settle(140);
+    const target = monthHeading();
+    const targetYear = sheetStamp().y;
+    await clickInDialog(`Apply ${target} ${targetYear}`);
+    await settle(SETTLE_SWAP);
+    check(!dialog(), "the sheet closes once the period is applied");
+    check(
+      barMonth() === `${target} ${targetYear}`,
+      `the period bar now reads ${target} ${targetYear} (got "${barMonth()}")`,
+    );
+    eqNum(
+      barShifts().shifts,
+      0,
+      "a month the demo never seeded reports zero shifts — the whole module follows the period",
+    );
+    const appliedVault = await readVault();
+    const appliedPeriod = (appliedVault as unknown as { royal?: { period?: { y: number; m: number } } })
+      ?.royal?.period;
+    eqNum(appliedPeriod?.m ?? -1, (MONTHS as readonly string[]).indexOf(target), "the applied month persisted to the vault");
+    eqNum(appliedPeriod?.y ?? -1, targetYear, "the applied year persisted to the vault");
+
+    // Put the workspace back on the live month.
+    await click(periodBar ?? null, "period bar (reopen)");
+    await settle(SETTLE_SWAP);
+    await clickInDialog(`Jump to current month (${thisMonth} ${now.getFullYear()})`);
+    await settle(160);
+    await clickInDialog(`Apply ${thisMonth} ${now.getFullYear()}`);
+    await settle(SETTLE_SWAP);
+    check(barMonth() === thisMonthLabel, "the workspace is back on the current month");
+    eqNum(
+      barShifts().shifts,
+      shiftsThisMonth,
+      "and the seeded attendance is visible again",
+    );
+  }
+  if (dialog()) {
+    await click(document.querySelector('button[aria-label="Close dialog"]'), "close the period sheet");
+    await settle(SETTLE_SWAP);
+  }
+  check(!dialog(), "no dialog is left open before the roster is filtered");
+
+  section("19 · Search & filter chips");
+  const search = document.querySelector<HTMLInputElement>('input[aria-label="Search staff"]');
+  check(!!search, "the roster exposes a search field");
+  const roster = visibleStaff();
+  check(roster.length >= 6, `the unfiltered roster lists everybody (${roster.length} cards)`);
+
+  for (const label of ["All", "Male", "Female", "Bonus"]) {
+    const badge = chipCount(label);
+    check(badge >= 0, `the "${label}" chip carries a count badge`);
+    await clickChip(label);
+    // Employee cards exit over 0.32s; count them only once the exit is done,
+    // otherwise the leaving cards are still in the DOM and inflate the tally.
+    await settle(SETTLE_SWAP);
+    const shown = visibleStaff();
+    check(
+      chip(label)?.getAttribute("aria-pressed") === "true",
+      `the "${label}" chip announces itself as the active filter`,
+    );
+    eqNum(shown.length, badge, `the "${label}" chip's badge matches the roster it filters to`);
+    if (label === "Female") {
+      check(
+        shown.every((n) => ["Nimali Fernando", "Kumari Jayasuriya", "Dilani Rathnayake"].includes(n)),
+        "the Female chip shows only the women on the demo roster",
+      );
+    }
+    if (label === "Male") {
+      lacks("Nimali Fernando", "the Male chip hides the women");
+    }
+  }
+  await clickChip("All");
+  await settle(SETTLE_SWAP);
+  eqNum(visibleStaff().length, roster.length, "All brings the whole roster back");
+
+  if (search) {
+    await typeInto(search, "kamal");
+    await settle(SETTLE_SWAP);
+    eqNum(visibleStaff().length, 1, "a name query narrows the roster to one card");
+    has("Kamal Perera", "and it is the right card");
+    lacks("Nimali Fernando", "everybody else is filtered out");
+
+    await typeInto(search, "199578901234");
+    await settle(SETTLE_SWAP);
+    has("Nimali Fernando", "the NIC is searchable too");
+    lacks("Kamal Perera", "the name query no longer applies");
+
+    await typeInto(search, "zzzz-not-a-person");
+    await settle(SETTLE_SWAP);
+    has("No employees match that filter", "a dead-end search says so plainly");
+    await clickButton("Reset filters");
+    await settle(SETTLE_SWAP);
+    eqNum(visibleStaff().length, roster.length, "Reset filters restores the full roster");
+    check((search.value ?? "") === "", "and clears the search field");
+  }
+
+  section("20 · Excel export");
+  await clickTab("Invoice");
+  await settle(SETTLE_TAB);
+  // xlsx detects Node's `fs` and writes to disk instead of downloading, so aim
+  // the process at a scratch directory before clicking.
+  const realCwd = process.cwd();
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "empire-render-"));
+  try {
+    process.chdir(scratch);
+    await clickButton("Excel");
+    await settle(900);
+    const written = fs.readdirSync(scratch);
+    check(
+      written.some((f) => f.endsWith(".xlsx")),
+      `the Excel button wrote a workbook (${written.join(", ") || "nothing"})`,
+    );
+    check(
+      written.some((f) => /^Labour_Invoice_.+\.xlsx$/.test(f)),
+      `the workbook is named after the invoice and period (${written.join(", ")})`,
+    );
+    has("Excel saved", "the toast confirms the workbook");
+  } finally {
+    process.chdir(realCwd);
+    fs.rmSync(scratch, { recursive: true, force: true });
+  }
+
+  section("21 · Backup round trip");
+  await clickTab("Settings");
+  await settle(SETTLE_TAB);
+  const vaultNow = await readVault();
+  const headcountNow = vaultNow?.royal?.employees?.length ?? 0;
+  check(headcountNow >= 7, `the roster still holds the added staffer (${headcountNow})`);
+
+  captured.blob = null;
+  captured.name = "";
+  await clickButton("Export backup JSON");
+  await settle(240);
+  const backupBlob = grabBlob();
+  check(backupBlob !== null, "Export backup JSON produced a Blob");
+  check(
+    /^empire-ml-backup-\d{4}-\d{2}-\d{2}\.json$/.test(grabName()),
+    `the backup filename is dated (got ${grabName()})`,
+  );
+  const backupText = backupBlob ? await backupBlob.text() : "";
+  const backupDoc = JSON.parse(backupText || "{}") as {
+    exportedAt?: string;
+    royal?: { employees?: { name: string }[] };
+    estate?: { records?: Record<string, unknown> };
+  };
+  eqNum(
+    backupDoc.royal?.employees?.length ?? 0,
+    headcountNow,
+    "the backup carries the whole roster",
+  );
+  check(typeof backupDoc.exportedAt === "string", "the backup is stamped with an export time");
+  check(
+    Object.keys(backupDoc.estate?.records ?? {}).length > 0,
+    "one backup covers both modules — the estate records are in it too",
+  );
+
+  // Pick the input that belongs to the Import button — the sheet has only one,
+  // but a bare querySelector would silently match any other file input.
+  const importButton = Array.from(document.querySelectorAll("button")).find(
+    (b) => (b.textContent ?? "").trim() === "Import backup JSON",
+  );
+  const fileInput =
+    importButton?.parentElement?.querySelector<HTMLInputElement>('input[type="file"]') ?? null;
+  check(!!fileInput, "the import button owns a real file input");
+  check(
+    (fileInput?.getAttribute("accept") ?? "").includes(".json"),
+    "the file input only offers JSON",
+  );
+
+  if (fileInput) {
+    const renamed = JSON.parse(backupText) as { royal: { employees: { name: string }[] } };
+    renamed.royal.employees[0].name = "Imported Worker";
+    await handFile(
+      fileInput,
+      new File([JSON.stringify(renamed)], "backup.json", { type: "application/json" }),
+    );
+    await settle(360);
+    has("Imported", "a successful import reports back through a toast");
+    has("staff", "and says how many staff came across");
+    const imported = await readVault();
+    check(
+      (imported?.royal?.employees ?? []).some((e) => e.name === "Imported Worker"),
+      "the imported roster replaced the vault",
+    );
+
+    await handFile(
+      fileInput,
+      new File(['{"hello":"world"}'], "other.json", { type: "application/json" }),
+    );
+    await settle(340);
+    has("Not an Empire ML backup", "a foreign JSON file is rejected with a clear message");
+    const untouched = await readVault();
+    check(
+      (untouched?.royal?.employees ?? []).some((e) => e.name === "Imported Worker"),
+      "a rejected import leaves the vault untouched",
+    );
+
+    const realError = console.error;
+    let logged = 0;
+    console.error = () => {
+      logged++;
+    };
+    await handFile(fileInput, new File(["{not json"], "broken.json", { type: "application/json" }));
+    await settle(340);
+    console.error = realError;
+    has("Failed to parse backup file", "corrupt JSON is reported, not thrown at the user");
+    check(logged > 0, "and the parse failure is logged for diagnosis");
+
+    // The import was undoable, so the roster name goes back.
+    const undoImport = Array.from(document.querySelectorAll("button")).find(
+      (b) => (b.getAttribute("title") ?? "") === "Undo the last change",
+    );
+    await click(undoImport ?? null, "undo the import");
+    await settle(200);
+    const reverted = await readVault();
+    check(
+      !(reverted?.royal?.employees ?? []).some((e) => e.name === "Imported Worker"),
+      "Undo reverts the import",
+    );
+    check(
+      (reverted?.royal?.employees ?? []).some((e) => e.name === "Kamal Perera"),
+      "and the original roster is back",
+    );
+
+    await clickButton("Restore last backup");
+    await settle(300);
+    has("Backup restored", "the mirrored backup key can be restored on demand");
+  }
+
+  section("22 · Estate 24–24 navigation");
+  const toEstate = Array.from(document.querySelectorAll("button")).find((b) =>
+    (b.textContent ?? "").includes("Royal Hires"),
+  );
+  await click(toEstate ?? null, "module switcher");
+  await settle(180);
+  await clickText("Millennium Estate");
+  await settle(SETTLE_SWAP);
+  // The estate workspace restores the tab it was left on (Rates), so navigate.
+  await clickTab("Overview");
+  await settle(SETTLE_TAB);
+  has("Estate Labour Overview", "the estate dashboard renders");
+
+  /** The 24–24 period bar: the flex row that holds both stepper buttons. */
+  const estateBar = () =>
+    document
+      .querySelector('button[aria-label="Previous 24–24 period"]')
+      ?.parentElement as HTMLElement | null;
+  const windowLabel = () =>
+    (estateBar()?.querySelector(".display")?.textContent ?? "").trim();
+  // Read the stats element on its own: in the bar's concatenated text the
+  // window year runs straight into the day count ("…2026" + "31 days…").
+  const windowStats = () => {
+    const t = (estateBar()?.querySelector(".tnum")?.textContent ?? "").trim();
+    const m = t.match(/^(\d+) days · (\d+) logged/);
+    return m ? { days: Number(m[1]), logged: Number(m[2]) } : { days: -1, logged: -1 };
+  };
+  // No \b here either — the badge text butts up against the year digits.
+  const barIsLive = () => (estateBar()?.textContent ?? "").includes("Live");
+  const anchorInVault = async () => {
+    const v = (await readVault()) as unknown as { estate?: { periodAnchor?: string } };
+    return v?.estate?.periodAnchor ?? "";
+  };
+  check(!!estateBar(), "the estate period bar is rendered with both steppers");
+
+  const live = windowLabel();
+  check(
+    /^\d{2} [A-Z][a-z]{2} – \d{2} [A-Z][a-z]{2} \d{4}$/.test(live),
+    `the live window reads like a 24–24 range (got "${live}")`,
+  );
+  check(barIsLive(), "the window holding today is flagged Live");
+  const liveLogged = windowStats().logged;
+  check(liveLogged > 0, `the seeded window has records (${liveLogged} logged)`);
+  const liveDays = windowStats().days;
+  check(
+    liveDays >= 28 && liveDays <= 31,
+    `the live window is 28–31 real calendar dates (got ${liveDays})`,
+  );
+  check(
+    /^\d{4}-\d{2}-\d{2}$/.test(await anchorInVault()),
+    `the anchor is a date key (got ${await anchorInVault()})`,
+  );
+
+  await click(
+    document.querySelector('button[aria-label="Previous 24–24 period"]'),
+    "previous 24–24 period",
+  );
+  await settle(260);
+  const previous = windowLabel();
+  check(previous !== live, `navigating back moves the window ("${live}" → "${previous}")`);
+  check(!barIsLive(), "a window that does not hold today loses the Live badge");
+  eqNum(windowStats().logged, 0, "the previous window holds no seeded records");
+  const prevDays = windowStats().days;
+  check(
+    prevDays >= 28 && prevDays <= 31,
+    `a 24–24 window is 28–31 real calendar dates (got ${prevDays})`,
+  );
+  check(
+    /^\d{4}-\d{2}-24$/.test(await anchorInVault()),
+    `stepping to a window anchors it on the 24th (got ${await anchorInVault()})`,
+  );
+
+  await click(
+    document.querySelector('button[aria-label="Next 24–24 period"]'),
+    "next 24–24 period (back)",
+  );
+  await settle(260);
+  check(windowLabel() === live, "Next walks back into the live window");
+  check(barIsLive(), "and the Live badge returns");
+  eqNum(windowStats().logged, liveLogged, "with every seeded record intact");
+
+  await click(
+    document.querySelector('button[aria-label="Next 24–24 period"]'),
+    "next 24–24 period (forward)",
+  );
+  await settle(260);
+  const future = windowLabel();
+  check(future !== live && future !== previous, `Next steps into a third window ("${future}")`);
+  check(!barIsLive(), "a future window is not Live either");
+  eqNum(windowStats().logged, 0, "the future window is empty");
+
+  await clickButton("This month");
+  await settle(280);
+  check(windowLabel() === live, "This month snaps straight back to the live window");
+  check(barIsLive(), "and it is flagged Live again");
+  eqNum(windowStats().logged, liveLogged, "the records are still there");
+
+  // Walking the window must never touch the data itself.
+  const afterNav = await readVault();
+  eqNum(
+    Object.keys(afterNav?.estate?.records ?? {}).length,
+    liveLogged,
+    "navigating periods did not add or drop estate records",
+  );
 
   report(root, container);
 }

@@ -103,7 +103,6 @@ export function SettingsTab(props: Props) {
   } = props;
 
   const fileRef = useRef<HTMLInputElement | null>(null);
-  const poyaRef = useRef<HTMLInputElement | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState<Employee | null>(null);
   const [newPoya, setNewPoya] = useState("");
@@ -336,7 +335,6 @@ export function SettingsTab(props: Props) {
             Add
           </button>
         </div>
-        <input ref={poyaRef} type="file" accept="application/json" className="hidden" />
       </Panel>
 
       {/* ═══ Data vault ══════════════════════════════════════════════ */}

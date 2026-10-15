@@ -25,9 +25,10 @@ npm run dev        # http://localhost:5173
 npm run build          # production bundle → dist/
 npm run preview        # serve the production build
 npm run typecheck      # tsc, no emit
-npm run verify           # all four suites: 420 assertions
+npm run verify           # all five suites: 678 assertions
 npm run verify:calc      # calculation fidelity against the source artefacts
 npm run verify:storage   # vault round-trip, backup fallback, legacy migration
+npm run verify:export    # CSV / XLSX / PDF-pagination fidelity, real workbook round trip
 npm run verify:render    # mounts the real <App /> in jsdom and drives the UI
 npm run verify:css       # guard: html2canvas can still rasterise every document
 ```
@@ -35,7 +36,10 @@ npm run verify:css       # guard: html2canvas can still rasterise every document
 The app starts **blank** on purpose. Use **Load demo data** (Settings, or the
 welcome sheet) to drop in the six-person roster with a full month of attendance
 and an estate window seeded across whichever 24–24 period contains today, so
-every calculation lights up immediately.
+every calculation lights up immediately. The demo is **seeded, not random**: the
+same month always produces the same marks, so it can be documented, screenshotted
+and tested, and the 21-day attendance bonus is always demonstrated rather than
+appearing by luck.
 
 ---
 
@@ -173,8 +177,13 @@ Deleting everything is a two-step flow that requires typing `DELETE`.
 
 ---
 
-## One deliberate deviation
+## Deliberate deviations
 
+Four places where the rebuild knowingly differs from the source artefacts. Each
+one is a bug fix, and each is pinned by an assertion so it cannot silently
+regress.
+
+**1 · A 24–24 window is one day shorter than the artefact claimed.**
 The source artefact computed the length of a 24–24 window as:
 
 ```js
@@ -186,25 +195,54 @@ before adding one, so a 24 Aug → 23 Sep window reported **32** days when it
 contains **31** dates. `estatePeriodDays()` now counts actual dates and returns
 31. The deviation is asserted explicitly in the test harness.
 
-`estatePeriodLabel()` is likewise formatted from our own month table instead of
+**2 · Month abbreviations no longer depend on the host's ICU.**
+`estatePeriodLabel()` is formatted from our own month table instead of
 `toLocaleDateString("en-GB", …)`, whose short form for September is `"Sept"` or
-`"Sep"` depending on the host's ICU/CLDR version.
+`"Sep"` depending on the host's ICU/CLDR version — which made exported filenames
+and window labels differ between machines.
+
+**3 · The demo month is seeded.**
+Both artefacts generated their sample data with `Math.random()`, so every reload
+reshuffled the roster. `seedAttendance()` and `seedEstateRecords()` now draw from
+`mulberry32` (`src/lib/random.ts`) with the artefacts' original probabilities and
+skip rules intact. Each employee gets its own stream, so hiring somebody never
+reshuffles the staff already on the roster. Seed `43` was picked by scanning: it
+keeps at least one bonus-eligible employee in every month for a year ahead, puts
+somebody exactly on the 21-day threshold and somebody one day short, and keeps
+the Sunday/Poya, female-night and `D+N` invoice lines alive. The suites assert
+determinism by making `Math.random()` count its own calls and demanding zero.
+
+**4 · An exact-fit PDF no longer ends with a blank page.**
+The artefact paginated a tall raster with
+
+```js
+mn = imgH; addImage(…, 0, …); mn -= usableH;
+while (mn >= 0) { offset = mn - imgH; addPage(); addImage(…, offset, …); mn -= usableH; }
+```
+
+`>= 0` emits one extra page whenever the image height is an exact multiple of the
+usable page height, and on that page the image sits entirely above the sheet — a
+trailing blank. `planPdfPages()` ceil-s the page count instead; the export suite
+sweeps 9 600 raster heights against a transcription of that loop and asserts
+identical offsets everywhere except exact fits, which come out one page shorter.
 
 ---
 
 ## Verification
 
-Four suites, all runnable with `npm run verify`.
+Five suites, all runnable with `npm run verify`.
 
-**`tests/verify.ts` — calculation fidelity (164 assertions).** Transcribes the
+**`tests/verify.ts` — calculation fidelity (181 assertions).** Transcribes the
 original minified functions inline (`legacyDayInfo`, `legacyPayslip`,
 `legacyInvoice`, `legacyPeriod`, `legacyDayAmount`, `legacyDelta`) and asserts the
 rebuilt engines agree with them: across all of 2026 for day classification, and on
 hand-built attendance fixtures covering the bonus threshold, `D+N`
 double-counting, Poya-at-the-top-rate, female night allowance, week-range bonus
 suppression, the seven invoice lines and their derived OT quantities, the 24–24
-boundaries at days 1/12/23/24/25/30/31, CSV headers and row shapes, and the
-extracted defaults.
+boundaries at days 1/12/23/24/25/30/31, CSV headers and row shapes, the extracted
+defaults, and the seeded demo month (reproducible, per-employee independent,
+never touching `Math.random()`, and rich enough to demonstrate every payroll
+rule).
 
 **`tests/run-storage.mjs` — persistence & migration (88 assertions).** The vault
 is the one place a silent failure costs real payroll data, so it is tested
@@ -216,7 +254,19 @@ strings coerced, `null`s zeroed, non-boolean shift marks dropped, employees
 without an id rejected, unknown rate keys not smuggled into state, and an
 invalid period falling back rather than corrupting the calendar.
 
-**`tests/run-render.mjs` — render smoke test (126 assertions).** Mounts the real
+**`tests/run-export.mjs` — document export (141 assertions).** Everything a
+download touches except the rasteriser is pure, so it is verified without a
+browser: CSV quoting and escaping, filename hygiene (`ensureExt`,
+`fileNameSafe`, the dated backup name), the A4 page plan against a transcription
+of the artefact's pagination loop, Excel column widths, and the estate sheet
+builder for **all three shapes** — male, female and combined — asserting the
+header, the per-row arity, the spacer, every `TOTAL` footer cell, and the exact
+CSV/XLSX parity that follows from both being built by one row function. It then
+writes a real workbook with the shipped `xlsx` package into a temp directory,
+reads it back and compares cell by cell, including the 31-character sheet-name
+truncation and the stored column widths.
+
+**`tests/run-render.mjs` — render smoke test (226 assertions).** Mounts the real
 `<App />` in jsdom and drives it the way a user would: load demo data, tap a shift
 cell and then **undo** it from the top bar, run the *Mark weekdays* bulk action and
 confirm the month actually fills, walk Cards → Today → Grid, open a payslip and edit
@@ -228,6 +278,20 @@ same date key**, add a new employee and confirm the roster grows, confirm the
 scroll-reveal behaviour is actually wired up, then assert the vault landed in
 `localStorage` under both keys.
 
+It then drives the surfaces a payroll user actually lives in: the **period
+sheet** (stepper, month/year pickers, a leap-year February, *Jump to current
+month*, and an applied month propagating to the period bar, the shift counts and
+the persisted `royal.period`), the **search field and filter chips** (every
+chip's badge must equal the number of cards it filters to, NIC search, the
+dead-end empty state and *Reset filters*), the **Excel export** (a real `.xlsx`
+written under the invoice-derived filename), the **backup round trip** (export →
+parse → rename a worker → import through the hidden file input → toast → vault,
+then reject a foreign JSON file and a corrupt one without touching the vault,
+then Undo the import), and the **estate 24–24 navigation** (Previous / Next /
+*This month*, the Live badge only on the window that holds today, the record
+count dropping to zero outside the seeded window, the anchor persisting as a
+24th, and navigation never mutating the data).
+
 **`tests/run-css.mjs` — export-compatibility guard (42 assertions).** PDF and PNG
 export rasterise live DOM through `html2canvas` 1.4.1, whose colour parser throws
 on `oklch()`, `oklab()`, `lab()`, `lch()`, `hwb()` and `color-mix()`. Tailwind v4
@@ -238,9 +302,10 @@ hand-written CSS and the compiled bundle, and checks that each printable
 document still uses explicit hex.
 
 ```
-✅ 164 assertions passed — calculations match the source artefacts
+✅ 181 assertions passed — calculations match the source artefacts
 ✅  88 persistence assertions passed — the vault round-trips and migrates
-✅ 126 render assertions passed — the UI mounts and drives cleanly
+✅ 141 export assertions passed — CSV, XLSX and PDF pagination are sound
+✅ 226 render assertions passed — the UI mounts and drives cleanly
 ✅  42 export-compatibility assertions passed
 ```
 
@@ -264,13 +329,21 @@ typechecking, the production build and the calculation suite all missed:
   every row matches the header arity and the grand total lands in the final
   column.
 
-A fourth defect was caught by review rather than by a test: the `Reveal`
-component and its `.scroll-rise` stylesheet — the defining behaviour of
-`millennium-scroll-reveal.html` — had been built and then never imported
-anywhere. They are now wired through the long-scroll surfaces of both modules,
-and the render suite asserts `.scroll-rise` elements exist and fall back to
-visible when `IntersectionObserver` is unavailable, so it cannot quietly become
-dead code again.
+Two more were caught by review rather than by a test:
+
+- The `Reveal` component and its `.scroll-rise` stylesheet — the defining
+  behaviour of `millennium-scroll-reveal.html` — had been built and then never
+  imported anywhere. They are now wired through the long-scroll surfaces of both
+  modules, and the render suite asserts `.scroll-rise` elements exist and fall
+  back to visible when `IntersectionObserver` is unavailable, so it cannot
+  quietly become dead code again.
+- Settings carried a second hidden `<input type="file">` for importing Poya
+  dates that nothing ever opened and that had no `onChange` — dead scaffolding
+  the source artefact never had. Removed.
+
+Covering the filter chips also made them accessible: each pill now carries
+`aria-pressed` and their row is a `role="group"` with a name, so a screen reader
+announces which filter is active instead of four indistinguishable pills.
 
 ---
 
@@ -282,8 +355,9 @@ src/
     types.ts       domain model for both modules
     calendar.ts    dates, Poya, day classes, week slices, 24–24 window, formatting
     payroll.ts     Royal engine — payslips, invoice roll-up, attendance mutations
-    estate.ts      Millennium engine — day amounts, window totals, deltas, CSV
+    estate.ts      Millennium engine — day amounts, window totals, deltas, CSV/XLSX sheets
     storage.ts     dual-key vault, legacy migration, shape guards
+    random.ts      mulberry32 + seed mixing for the deterministic demo
     exporters.ts   CSV / XLSX / PDF / PNG (heavy libs are dynamically imported)
     cn.ts          Tailwind-aware className merge
   data/defaults.ts every default value lifted from the artefacts
@@ -295,7 +369,7 @@ src/
   modules/
     royal/         AttendanceTab, PayrollTab, InvoiceTab, SettingsTab, sheets
     estate/        Dashboard, Attendance, Summary, Export, Settings
-tests/verify.ts    calculation-fidelity harness
+tests/             five harnesses: calc, storage, export, render, css
 ```
 
 **Stack** — Vite 6 · React 18 · TypeScript (strict) · Tailwind 3 · Framer Motion

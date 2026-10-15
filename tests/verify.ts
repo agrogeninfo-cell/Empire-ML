@@ -29,9 +29,11 @@ import {
   mergeDay,
   nextMark,
   resolveWeekSlice,
+  seedAttendance,
   setMark,
   setMarks,
   DEFAULT_RANGE,
+  DEMO_ATTENDANCE_SEED,
 } from "../src/lib/payroll";
 import {
   ESTATE_CSV_FILE_HEADERS,
@@ -55,6 +57,7 @@ import {
   DEFAULT_OT_HOURS,
   DEFAULT_PAYROLL_RATES,
   DEMO_EMPLOYEES,
+  demoRoyalState,
 } from "../src/data/defaults";
 import type {
   AttendanceMap,
@@ -618,6 +621,100 @@ truthy(
   Object.values(seedA).every((r) => halfStep(r.maleCount) === r.maleCount),
   "demo counts respect 0.5 steps",
 );
+
+/* The royal demo month used to be rolled with Math.random(), so every "Load
+ * demo data" produced a different roster — untestable, undocumented, and the
+ * 21-day attendance bonus often never appeared at all. Both seeds are now
+ * deterministic. Prove it by making Math.random() explode. */
+const realRandom = Math.random;
+let randomCalls = 0;
+Math.random = () => {
+  randomCalls++;
+  return realRandom();
+};
+const attA = seedAttendance(DEMO_EMPLOYEES, OCT_2026, POYA);
+const attB = seedAttendance(DEMO_EMPLOYEES, OCT_2026, POYA);
+const seededEstate = seedEstateRecords(demoPeriod);
+Math.random = realRandom;
+
+eq(randomCalls, 0, "neither demo seed touches Math.random()");
+eq(attA, attB, "the royal demo month is reproducible");
+eq(seededEstate, seedA, "the estate demo month is reproducible");
+truthy(
+  Object.keys(attA).length === DEMO_EMPLOYEES.length,
+  "every employee gets an attendance map",
+);
+
+// A different seed must give a different month, i.e. the seed really drives it.
+truthy(
+  JSON.stringify(seedAttendance(DEMO_EMPLOYEES, OCT_2026, POYA, DEMO_ATTENDANCE_SEED + 1)) !==
+    JSON.stringify(attA),
+  "a different seed produces a different month",
+);
+
+// Each employee draws from its own stream, so hiring somebody new must not
+// reshuffle the marks of the staff already on the roster.
+const grown = [...DEMO_EMPLOYEES, { ...DEMO_EMPLOYEES[0], id: "e99", name: "New Hire", nic: "199900000001" }];
+const attGrown = seedAttendance(grown, OCT_2026, POYA);
+eq(
+  DEMO_EMPLOYEES.map((e) => attGrown[e.id]),
+  DEMO_EMPLOYEES.map((e) => attA[e.id]),
+  "adding staff leaves the existing marks untouched",
+);
+
+// The artefact skipped every day divisible by 7 or 9 — keep that shape.
+const skippedKeys = octDays
+  .filter((d) => d.d % 7 === 0 || d.d % 9 === 0)
+  .map((d) => d.key);
+truthy(
+  Object.values(attA).every((days) => skippedKeys.every((k) => !days[k])),
+  "no demo mark lands on a day divisible by 7 or 9",
+);
+
+// The demo month has to actually demonstrate the payroll rules.
+const seededRows = computeMonthPayslips(
+  DEMO_EMPLOYEES,
+  attA,
+  OCT_2026,
+  DEFAULT_PAYROLL_RATES,
+  {},
+  POYA,
+  DEFAULT_BONUS_DAYS,
+  DEFAULT_BONUS_AMOUNT,
+);
+const seededInvoice = computeInvoiceTotals(seededRows, DEFAULT_INVOICE_RATES, DEFAULT_OT_HOURS);
+const eligible = seededRows.filter((r) => r.bonusEligible);
+truthy(eligible.length >= 1, `the demo shows the attendance bonus (${eligible.length} eligible)`);
+truthy(
+  seededRows.some((r) => r.workingDays === DEFAULT_BONUS_DAYS && r.bonusEligible),
+  "somebody sits exactly on the 21-day threshold and still earns the bonus",
+);
+truthy(
+  seededRows.some((r) => r.workingDays === DEFAULT_BONUS_DAYS - 1 && !r.bonusEligible),
+  "somebody one day short misses it — the rule is visible from both sides",
+);
+truthy(seededInvoice.sunday > 0, `the demo bills Sunday / Poya OT (${seededInvoice.sunday} shifts)`);
+truthy(seededInvoice.female > 0, `the demo bills the female night allowance (${seededInvoice.female})`);
+truthy(seededInvoice.weekdayOT > 0, `the demo derives weekday OT hours (${seededInvoice.weekdayOT})`);
+truthy(
+  Object.values(attA).some((days) =>
+    Object.values(days ?? {}).some((m) => m?.D && m?.N),
+  ),
+  "the demo contains D+N double shifts",
+);
+truthy(
+  seededRows.every((r) => r.workingDays > 0 && r.workingDays <= 31),
+  "every demo payslip has a plausible working-day count",
+);
+
+// The shipped demo workspace is what "Load demo data" writes into the vault.
+const shipped = demoRoyalState();
+eq(
+  shipped.attendance,
+  seedAttendance(shipped.employees, shipped.period, shipped.poyaDays),
+  "the demo workspace ships exactly the seeded month",
+);
+truthy(shipped.employees.length === 6, "the demo workspace ships the six-person roster");
 
 /* ═════════════════════════════════════════════════════════════
  * 7 · Defaults lifted from the artefacts

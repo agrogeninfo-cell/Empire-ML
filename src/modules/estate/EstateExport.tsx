@@ -13,12 +13,10 @@ import { Reveal } from "@/components/ui/Reveal";
 import { cn } from "@/lib/cn";
 import { MONTHS, fileNameSafe, money, num } from "@/lib/calendar";
 import {
-  ESTATE_CSV_FILE_HEADERS,
   ESTATE_CSV_HEADERS,
   dayAmount,
   estateCsv,
-  femaleAmount,
-  maleAmount,
+  estateSheet,
   type EstateCsvKind,
 } from "@/lib/estate";
 import { copyToClipboard, downloadCsv, downloadText } from "@/lib/exporters";
@@ -69,56 +67,10 @@ export function EstateExport({ estate, derived, notify }: Props) {
     notify(`Exported ${kind} CSV • ${derived.rows.length} rows`, "success");
   };
 
-  const sheetFor = (kind: EstateCsvKind): (string | number)[][] => {
-    const head = ESTATE_CSV_FILE_HEADERS[kind];
-    const body = derived.rows.map((r) => {
-      const [y, m, d] = r.date.split("-");
-      if (kind === "male")
-        return [y, m, d, r.maleCount, r.maleOt, maleAmount(r, estate.rates)];
-      if (kind === "female")
-        return [y, m, d, r.femaleCount, r.femaleOt, femaleAmount(r, estate.rates)];
-      return [
-        y,
-        m,
-        d,
-        r.maleCount,
-        r.femaleCount,
-        r.maleOt,
-        r.femaleOt,
-        r.lateHours,
-        r.inTime,
-        r.outTime,
-        dayAmount(r, estate.rates),
-      ];
-    });
-
-    // The footer must match each shape's arity, or the totals slide sideways
-    // under the wrong headings.
-    const t = derived.totals;
-    const maleTotal = derived.rows.reduce((s, r) => s + maleAmount(r, estate.rates), 0);
-    const femaleTotal = derived.rows.reduce((s, r) => s + femaleAmount(r, estate.rates), 0);
-
-    const total: (string | number)[] =
-      kind === "male"
-        ? ["TOTAL", "", "", num(t.m), num(t.mOt), money(maleTotal)]
-        : kind === "female"
-          ? ["TOTAL", "", "", num(t.f), num(t.fOt), money(femaleTotal)]
-          : [
-              "TOTAL",
-              "",
-              "",
-              num(t.m),
-              num(t.f),
-              num(t.mOt),
-              num(t.fOt),
-              num(t.late),
-              "",
-              "",
-              money(t.grand),
-            ];
-
-    return [head, ...body, [], total];
-  };
+  // Header + rows + spacer + TOTAL, built by the shared (and unit-tested)
+  // sheet builder so the CSV file can never disagree with the preview.
+  const sheetFor = (kind: EstateCsvKind): (string | number)[][] =>
+    estateSheet(derived.rows, derived.totals, estate.rates, kind);
 
   const copyPreview = async () => {
     const ok = await copyToClipboard(preview);

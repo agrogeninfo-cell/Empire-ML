@@ -255,7 +255,11 @@ export function AttendanceTab({
       </div>
 
       {/* filters */}
-      <div className="no-scrollbar -mx-4 flex gap-1.5 overflow-x-auto px-4 md:mx-0 md:px-0">
+      <div
+        role="group"
+        aria-label="Filter staff"
+        className="no-scrollbar -mx-4 flex gap-1.5 overflow-x-auto px-4 md:mx-0 md:px-0"
+      >
         {FILTERS.map((f) => {
           const on = filter === f.id;
           const count =
@@ -270,6 +274,7 @@ export function AttendanceTab({
             <button
               key={f.id}
               type="button"
+              aria-pressed={on}
               onClick={() => setFilter(f.id)}
               className={cn(
                 "shrink-0 rounded-full border px-3 py-2 text-[11.5px] font-semibold transition active:scale-95",

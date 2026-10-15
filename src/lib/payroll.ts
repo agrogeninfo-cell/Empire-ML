@@ -6,6 +6,7 @@ import {
   dateKey,
   daysInMonth,
 } from "./calendar";
+import { hashString, mixSeed, mulberry32 } from "./random";
 import type {
   AttendanceMap,
   CalendarDay,
@@ -550,21 +551,42 @@ export function makeEmployeeId(): string {
   return `e${Date.now().toString(36)}${Math.floor(Math.random() * 1e3)}`;
 }
 
+/**
+ * Seed a demo month of attendance.
+ *
+ * The shape follows the generator shipped in the source artefact — skip every
+ * day divisible by 7 or 9, then roll a day mark and a night mark with the same
+ * probabilities (85% on a working day, 25% on a Sunday/Poya, 70% for female
+ * nights, 85% for male nights).
+ *
+ * The rolls are seeded rather than `Math.random()`, so the same roster in the
+ * same month always produces the same marks. Each employee draws from its own
+ * stream: adding or removing staff never reshuffles the people already on the
+ * roster.
+ *
+ * The constant below was chosen by scanning seeds for the one whose demo month
+ * is most instructive: at least one bonus-eligible employee in every month for
+ * a year ahead, somebody sitting exactly on the 21-day threshold, live Sunday
+ * and female-night lines on the invoice, and a handful of D+N double shifts.
+ */
+export const DEMO_ATTENDANCE_SEED = 43;
+
 export function seedAttendance(
   employees: Employee[],
   period: Period,
   poyaDays: string[],
+  seed: number = DEMO_ATTENDANCE_SEED,
 ): AttendanceMap {
   const map: AttendanceMap = {};
   const days = buildMonth(period, poyaDays);
   for (const emp of employees) {
+    const rnd = mulberry32(mixSeed(seed, hashString(emp.id), period.y * 12 + period.m));
     map[emp.id] = {};
     for (const day of days) {
-      // mirrors the demo generator shipped in the source artefact
       if (day.d % 7 === 0 || day.d % 9 === 0) continue;
       const isWorkday = day.info.type === "weekday" || day.info.type === "saturday";
-      const D = isWorkday ? Math.random() > 0.15 : Math.random() > 0.75;
-      const N = emp.isFemale ? Math.random() > 0.7 : Math.random() > 0.85;
+      const D = rnd() > (isWorkday ? 0.15 : 0.75);
+      const N = rnd() > (emp.isFemale ? 0.7 : 0.85);
       if (D || N) map[emp.id][day.key] = { D, N };
     }
   }

@@ -1,8 +1,11 @@
 import {
   estatePeriodDays,
   estatePeriodKeys,
+  money,
+  num,
   startOfLocalDay,
 } from "./calendar";
+import { mulberry32 } from "./random";
 import type { EstateDayRecord, EstatePeriod, EstateRates, EstateRecords } from "./types";
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -189,35 +192,111 @@ export const ESTATE_CSV_FILE_HEADERS: Record<EstateCsvKind, string[]> = {
   ],
 };
 
+/**
+ * One record as a row of cells, in the column order of
+ * `ESTATE_CSV_FILE_HEADERS[kind]`.
+ *
+ * Single source of truth for every estate download: the plain-text preview,
+ * the CSV file and the XLSX workbook are all built from this, so the three
+ * can never drift apart.
+ */
+export function estateCsvRow(
+  r: EstateDayRecord,
+  rates: EstateRates,
+  kind: EstateCsvKind,
+): (string | number)[] {
+  const [y, m, d] = r.date.split("-");
+  if (kind === "male") return [y, m, d, r.maleCount, r.maleOt, maleAmount(r, rates)];
+  if (kind === "female") return [y, m, d, r.femaleCount, r.femaleOt, femaleAmount(r, rates)];
+  return [
+    y,
+    m,
+    d,
+    r.maleCount,
+    r.femaleCount,
+    r.maleOt,
+    r.femaleOt,
+    r.lateHours,
+    r.inTime,
+    r.outTime,
+    dayAmount(r, rates),
+  ];
+}
+
+/**
+ * The TOTAL footer for one shape.
+ *
+ * It must carry exactly as many cells as the header, or the grand total slides
+ * sideways under the wrong heading — that is what happened once when a single
+ * combined footer was reused for all three shapes.
+ */
+export function estateCsvFooter(
+  rows: EstateDayRecord[],
+  totals: PeriodTotals,
+  rates: EstateRates,
+  kind: EstateCsvKind,
+): (string | number)[] {
+  const sum = (pick: (r: EstateDayRecord) => number) =>
+    rows.reduce((s, r) => s + pick(r), 0);
+
+  if (kind === "male")
+    return ["TOTAL", "", "", num(totals.m), num(totals.mOt), money(sum((r) => maleAmount(r, rates)))];
+  if (kind === "female")
+    return [
+      "TOTAL",
+      "",
+      "",
+      num(totals.f),
+      num(totals.fOt),
+      money(sum((r) => femaleAmount(r, rates))),
+    ];
+  return [
+    "TOTAL",
+    "",
+    "",
+    num(totals.m),
+    num(totals.f),
+    num(totals.mOt),
+    num(totals.fOt),
+    num(totals.late),
+    "",
+    "",
+    money(totals.grand),
+  ];
+}
+
+/**
+ * The complete download grid: header, one row per record, a spacer and the
+ * TOTAL footer. Fed straight to `downloadCsv` / `downloadXlsx`.
+ */
+export function estateSheet(
+  rows: EstateDayRecord[],
+  totals: PeriodTotals,
+  rates: EstateRates,
+  kind: EstateCsvKind,
+): (string | number)[][] {
+  return [
+    [...ESTATE_CSV_FILE_HEADERS[kind]],
+    ...rows.map((r) => estateCsvRow(r, rates, kind)),
+    [],
+    estateCsvFooter(rows, totals, rates, kind),
+  ];
+}
+
+/**
+ * Plain comma text (`2026,06,25` and friends) for the on-screen preview, the
+ * clipboard and pasting into the source artefact's own tooling. Unquoted,
+ * unlike the downloaded CSV which quotes every cell.
+ */
 export function estateCsv(
   rows: EstateDayRecord[],
   rates: EstateRates,
   kind: EstateCsvKind,
 ): string {
-  const lines: string[] = [];
-
-  lines.push(ESTATE_CSV_FILE_HEADERS[kind].join(","));
-
-  if (kind === "male") {
-    for (const r of rows) {
-      const [y, m, d] = r.date.split("-");
-      lines.push(`${y},${m},${d},${r.maleCount},${r.maleOt},${maleAmount(r, rates)}`);
-    }
-  } else if (kind === "female") {
-    for (const r of rows) {
-      const [y, m, d] = r.date.split("-");
-      lines.push(`${y},${m},${d},${r.femaleCount},${r.femaleOt},${femaleAmount(r, rates)}`);
-    }
-  } else {
-    for (const r of rows) {
-      const [y, m, d] = r.date.split("-");
-      lines.push(
-        `${y},${m},${d},${r.maleCount},${r.femaleCount},${r.maleOt},${r.femaleOt},${r.lateHours},${r.inTime},${r.outTime},${dayAmount(r, rates)}`,
-      );
-    }
-  }
-
-  return lines.join("\n");
+  return [
+    ESTATE_CSV_FILE_HEADERS[kind].join(","),
+    ...rows.map((r) => estateCsvRow(r, rates, kind).join(",")),
+  ].join("\n");
 }
 
 /**
@@ -275,15 +354,8 @@ export function demoPeriod(): EstatePeriod {
 
 export function seedEstateRecords(period: EstatePeriod, seed = 20250824): EstateRecords {
   const out: EstateRecords = {};
-  let s = seed;
-  const rnd = () => {
-    // mulberry32 — stable across reloads so the demo always looks the same
-    s |= 0;
-    s = (s + 0x6d2b79f5) | 0;
-    let t = Math.imul(s ^ (s >>> 15), 1 | s);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
+  // mulberry32 — stable across reloads so the demo always looks the same
+  const rnd = mulberry32(seed);
 
   for (const key of estatePeriodKeys(period)) {
     const date = startOfLocalDay(new Date(`${key}T00:00:00`));
